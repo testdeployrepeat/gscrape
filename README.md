@@ -8,7 +8,7 @@ A fast, powerful desktop application for scraping business data from Google Maps
 ## 📥 Installation / Download
 
 ### Windows
-1. Download the latest release: `gscrape Setup 1.0.0.exe`
+1. Download the latest release: [GScrape v1.0.1.exe](https://github.com/testdeployrepeat/gscrape/releases/download/v1.0.1/gscrape.Setup.1.0.0.exe)
 2. Run the installer
 3. Launch from Desktop or Start Menu
 
@@ -24,7 +24,17 @@ cd gscrape
 npm install
 npm start
 ```
+---
 
+## ⚠️ Disclaimer
+
+**GScrape is intended for educational and personal use only.**  
+
+- Users must comply with **Google Maps' Terms of Service**.  
+- The author is **not responsible** for any misuse of this software.  
+- Use this tool responsibly and at your own risk.  
+
+---
 ## ✨ Features
 
 - **Dual Modes**: Single location or bulk CSV processing

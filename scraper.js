@@ -141,7 +141,6 @@ async function scrapeGoogleMaps(options, progressCallback) {
     location,
     speed = 'normal',
     extractEmails = false,
-    extractWebsites = false,
     headless = true
   } = options;
 
@@ -271,7 +270,6 @@ async function scrapeGoogleMaps(options, progressCallback) {
           address: '',
           phone: '',
           website: '',
-          owner: '',
           rating: '',
           reviews: ''
         };
@@ -378,57 +376,6 @@ async function scrapeGoogleMaps(options, progressCallback) {
     });
 
     let finalResults = uniqueBusinesses;
-
-    // Only visit individual pages if extractWebsites is explicitly enabled
-    // This allows for more thorough extraction (owner info, etc.)
-    if (extractWebsites && uniqueBusinesses.length > 0) {
-      progressCallback({
-        status: 'processing',
-        message: `Extracting detailed website and owner info for ${uniqueBusinesses.length} businesses...`,
-        total: uniqueBusinesses.length,
-        data: finalResults // Send current data
-      });
-
-      for (let i = 0; i < uniqueBusinesses.length; i++) {
-        if (shouldStop) break;
-        const business = uniqueBusinesses[i];
-        try {
-          // Click the business card to open its detailed view
-          await page.goto(business.link, { waitUntil: 'domcontentloaded', timeout: 20000 });
-          await wait(1500); // Reduced wait time for faster scraping
-
-          const details = await page.evaluate(() => {
-            // Website - try multiple selectors
-            const websiteEl = document.querySelector('a[data-item-id="authority"]') ||
-              document.querySelector('a[aria-label^="Website"]') ||
-              document.querySelector('a[href*="http"]:not([href*="google"]):not([href*="maps"])');
-
-            // Owner (Contributor link and name)
-            const ownerEl = document.querySelector('a[href*="/maps/contrib/"]');
-
-            return {
-              website: websiteEl ? websiteEl.href : null,
-              owner: ownerEl ? (ownerEl.textContent || ownerEl.innerText || ownerEl.getAttribute('aria-label') || ownerEl.href) : null
-            };
-          });
-
-          // Only update if we found better data
-          if (details.website && !business.website) business.website = details.website;
-          if (details.owner) business.owner = details.owner;
-
-        } catch (error) {
-          console.error(`Could not get details for ${business.name}: ${error.message}`);
-        }
-
-        progressCallback({
-          status: 'processing',
-          message: `Extracting details ${i + 1}/${uniqueBusinesses.length}`,
-          current: i + 1,
-          total: uniqueBusinesses.length,
-          data: finalResults // Send updated data
-        });
-      }
-    }
 
     if (extractEmails && finalResults.length > 0) {
       progressCallback({
