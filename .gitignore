@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Chrome binary (downloaded during install)
+chrome/
+
+# Build output
+dist/
+
+# Data files (user data stored in AppData)
+data/
+*.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp

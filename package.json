@@ -1,0 +1,61 @@
+{
+  "name": "gscrape",
+  "version": "1.0.0",
+  "description": "Fast Google Maps Business Scraper",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "node scripts/download-chrome.js",
+    "prebuild": "node scripts/verify-icon.js",
+    "build": "electron-builder"
+  },
+  "keywords": [],
+  "author": "Rob De Guia",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "@puppeteer/browsers": "^2.4.1",
+    "csv-parser": "^3.0.0",
+    "papaparse": "^5.4.1",
+    "puppeteer-core": "^24.27.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "build": {
+    "appId": "com.gscrape.app",
+    "productName": "gscrape",
+    "icon": "app-logo.png",
+    "win": {
+      "target": "nsis",
+      "icon": "app-logo.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    },
+    "files": [
+      "**/*",
+      "!data/scraped_history.json",
+      "!exports/**/*"
+    ],
+    "asarUnpack": [
+      "chrome/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "chrome",
+        "to": "chrome",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  }
+}
