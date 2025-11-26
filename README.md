@@ -12,6 +12,20 @@ A fast, powerful desktop application for scraping business data from Google Maps
 2. Run the installer
 3. Launch from Desktop or Start Menu
 
+---
+
+## ⚠️ Disclaimer
+
+**GScrape is intended for educational and personal use only.**  
+
+- Users must comply with **Google Maps' Terms of Service**.  
+- The author is **not responsible** for any misuse of this software.  
+- Use this tool responsibly and at your own risk.  
+
+---
+
+
+
 > **Note**: Windows may show a security warning. Click "More info" → "Run anyway"
 
 > **✅ Chrome Bundled**: No Chrome installation required!
