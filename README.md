@@ -1,6 +1,6 @@
 # 🗺️ gscrape
 
-A fast, powerful desktop application for scraping business data from Google Maps. Built with Electron and Puppeteer.
+A fast, powerful, open-source desktop application for scraping business data from Google Maps. Built with Electron and Puppeteer.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
@@ -92,6 +92,12 @@ C:\Users\{YourUsername}\AppData\Roaming\gscrape\data\
 
 Your data survives app restarts, updates, and reinstallation.
 
+## 📮 Contact
+
+**Rob De Guia** - Creator & Maintainer
+- GitHub: [@testdeployrepeat](https://github.com/testdeployrepeat)
+- Email: joserobertodeguia@gmail.com
+
 ## 💖 Support the Project
 
 If you find this tool helpful:
@@ -101,16 +107,6 @@ If you find this tool helpful:
 ## 📝 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
-## ⚠️ Disclaimer
-
-This tool is for educational and research purposes only. Please respect Google's Terms of Service and use responsibly.
-
-## 📮 Contact
-
-**Rob De Guia** - Creator & Maintainer
-- GitHub: [@testdeployrepeat](https://github.com/testdeployrepeat)
-- Email: joserobertodeguia@gmail.com
 
 ---
 
