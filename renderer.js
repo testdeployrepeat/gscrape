@@ -15,7 +15,6 @@ const bulkMode = document.getElementById('bulkMode');
 
 const nicheInput = document.getElementById('niche');
 const locationInput = document.getElementById('location');
-const refinementInput = document.getElementById('refinement');
 
 const bulkNicheInput = document.getElementById('bulkNiche');
 const bulkQueriesInput = document.getElementById('bulkQueries');
@@ -26,8 +25,10 @@ const queryCount = document.getElementById('queryCount');
 
 const speedSelect = document.getElementById('speed');
 const exportFormatSelect = document.getElementById('exportFormat');
-const extractWebsitesCheckbox = document.getElementById('extractWebsites');
-const extractWebsitesBulkCheckbox = document.getElementById('extractWebsitesBulk');
+const searchPrepositionSingle = document.getElementById('searchPrepositionSingle');
+const customPrepositionSingle = document.getElementById('customPrepositionSingle');
+const searchPrepositionBulk = document.getElementById('searchPrepositionBulk');
+const customPrepositionBulk = document.getElementById('customPrepositionBulk');
 const extractEmailsCheckbox = document.getElementById('extractEmails');
 const extractEmailsBulkCheckbox = document.getElementById('extractEmailsBulk');
 const startBtn = document.getElementById('startBtn');
@@ -145,9 +146,33 @@ document.getElementById('performanceMode').addEventListener('change', (e) => {
   // Remove the performance-mode class since we're using a simpler design
 });
 
-document.getElementById('searchPreposition').addEventListener('change', (e) => {
-  const preposition = e.target.value;
-  localStorage.setItem('searchPreposition', preposition);
+// Preposition dropdown handlers
+searchPrepositionSingle.addEventListener('change', (e) => {
+  const value = e.target.value;
+  if (value === 'custom') {
+    customPrepositionSingle.style.display = 'block';
+  } else {
+    customPrepositionSingle.style.display = 'none';
+  }
+  localStorage.setItem('searchPrepositionSingle', value);
+});
+
+searchPrepositionBulk.addEventListener('change', (e) => {
+  const value = e.target.value;
+  if (value === 'custom') {
+    customPrepositionBulk.style.display = 'block';
+  } else {
+    customPrepositionBulk.style.display = 'none';
+  }
+  localStorage.setItem('searchPrepositionBulk', value);
+});
+
+customPrepositionSingle.addEventListener('input', (e) => {
+  localStorage.setItem('customPrepositionSingle', e.target.value);
+});
+
+customPrepositionBulk.addEventListener('input', (e) => {
+  localStorage.setItem('customPrepositionBulk', e.target.value);
 });
 
 headlessModeCheckbox.addEventListener('change', (e) => {
@@ -503,20 +528,18 @@ async function startScraping() {
 async function startSingleScraping() {
   const niche = nicheInput.value.trim();
   const location = locationInput.value.trim();
-  const refinement = refinementInput.value.trim();
 
   if (!niche || !location) {
     alert('Please fill in both Niche and Location fields');
     return;
   }
 
-  let searchLocation = location;
-  if (refinement) {
-    searchLocation = `${location} ${refinement}`;
+  // Get preposition from dropdown
+  let preposition = searchPrepositionSingle.value;
+  if (preposition === 'custom') {
+    preposition = customPrepositionSingle.value.trim() || 'in';
   }
-
-  const preposition = localStorage.getItem('searchPreposition') || 'in';
-  const query = `${niche} ${preposition} ${searchLocation}`;
+  const query = `${niche} ${preposition} ${location}`;
 
   if (isAlreadyScraped(query)) {
     const proceed = confirm(
@@ -543,9 +566,8 @@ async function startSingleScraping() {
 
   const options = {
     niche,
-    location: searchLocation,
+    location,
     speed: speedSelect.value,
-    extractWebsites: extractWebsitesCheckbox.checked,
     extractEmails: extractEmailsCheckbox.checked,
     headless: headlessModeCheckbox.checked
   };
@@ -696,7 +718,12 @@ async function startBulkScraping() {
     }
 
     const location = bulkQueries[i];
-    const query = `${niche} in ${location}`;
+    // Get preposition from dropdown
+    let preposition = searchPrepositionBulk.value;
+    if (preposition === 'custom') {
+      preposition = customPrepositionBulk.value.trim() || 'in';
+    }
+    const query = `${niche} ${preposition} ${location}`;
 
     currentQuery.textContent = i + 1;
     currentSearchQuery.textContent = query;
@@ -708,7 +735,6 @@ async function startBulkScraping() {
       niche,
       location,
       speed: speedSelect.value,
-      extractWebsites: extractWebsitesBulkCheckbox.checked,
       extractEmails: extractEmailsBulkCheckbox.checked,
       headless: headlessModeCheckbox.checked
     };
@@ -1127,39 +1153,54 @@ async function clearHistory() {
   }
 }
 
-function initializeSettings() {
-  // Theme
-  const theme = localStorage.getItem('theme') || 'dark';
-  document.getElementById('themeSelect').value = theme;
-  document.documentElement.setAttribute('data-theme', theme);
+async function initializeSettings() {
+  // Load history
+  await loadHistory();
 
+  // Initialize theme
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  document.getElementById('themeSelect').value = savedTheme;
+  document.documentElement.setAttribute('data-theme', savedTheme);
+
+  // Initialize performance mode
   const performanceMode = localStorage.getItem('performanceMode') === 'true';
   document.getElementById('performanceMode').checked = performanceMode;
-  // Remove the performance-mode class since we're using a simpler design
 
-  // Search Preposition
-  const preposition = localStorage.getItem('searchPreposition') || 'in';
-  document.getElementById('searchPreposition').value = preposition;
+  // Initialize preposition dropdowns
+  const savedPrepositionSingle = localStorage.getItem('searchPrepositionSingle') || 'in';
+  searchPrepositionSingle.value = savedPrepositionSingle;
+  if (savedPrepositionSingle === 'custom') {
+    customPrepositionSingle.style.display = 'block';
+    customPrepositionSingle.value = localStorage.getItem('customPrepositionSingle') || '';
+  }
 
-  // Headless Mode
+  const savedPrepositionBulk = localStorage.getItem('searchPrepositionBulk') || 'in';
+  searchPrepositionBulk.value = savedPrepositionBulk;
+  if (savedPrepositionBulk === 'custom') {
+    customPrepositionBulk.style.display = 'block';
+    customPrepositionBulk.value = localStorage.getItem('customPrepositionBulk') || '';
+  }
+
+  // Initialize headless mode
   const headlessMode = localStorage.getItem('headlessMode') !== 'false';
   headlessModeCheckbox.checked = headlessMode;
 
-  // Default Export Format
-  const defaultExportFormat = localStorage.getItem('defaultExportFormat') || 'csv';
-  defaultExportFormatSelect.value = defaultExportFormat;
+  // Initialize export format
+  const exportFormat = localStorage.getItem('defaultExportFormat') || 'csv';
+  defaultExportFormatSelect.value = exportFormat;
+  exportFormatSelect.value = exportFormat;
 
-  // Auto-save Results
-  const autoSaveResults = localStorage.getItem('autoSaveResults') === 'true';
-  autoSaveResultsCheckbox.checked = autoSaveResults;
+  // Initialize auto-save
+  const autoSave = localStorage.getItem('autoSaveResults') === 'true';
+  autoSaveResultsCheckbox.checked = autoSave;
 
-  // Save History Data
+  // Initialize save history data
   const saveHistoryData = localStorage.getItem('saveHistoryData') !== 'false';
   document.getElementById('saveHistoryData').checked = saveHistoryData;
 
-  // Default Export Path
-  const defaultExportPath = localStorage.getItem('defaultExportPath') || '';
-  defaultExportPathInput.value = defaultExportPath;
+  // Initialize default export path
+  const defaultPath = localStorage.getItem('defaultExportPath') || '';
+  defaultExportPathInput.value = defaultPath;
 }
 
 function updateStats() {

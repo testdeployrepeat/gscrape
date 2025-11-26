@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
   <meta charset="UTF-8">
@@ -208,22 +208,7 @@
             </div>
           </div>
 
-          <div class="settings-group">
-            <h3>Search Settings</h3>
-            <div class="form-group">
-              <label for="searchPreposition">Search Preposition</label>
-              <select id="searchPreposition">
-                <option value="in">in</option>
-                <option value="near">near</option>
-                <option value="around">around</option>
-                <option value="at">at</option>
-                <option value="on">on</option>
-                <option value="for">for</option>
-              </select>
-              <small>Changes how search queries are formed (e.g., "restaurants in New York" vs "restaurants near New
-                York")</small>
-            </div>
-          </div>
+
 
           <div class="settings-group">
             <h3>Scraping</h3>
@@ -297,23 +282,29 @@
               </div>
 
               <div class="form-group">
+                <label for="searchPrepositionSingle">Search Preposition</label>
+                <select id="searchPrepositionSingle">
+                  <option value="in">in</option>
+                  <option value="near">near</option>
+                  <option value="around">around</option>
+                  <option value="at">at</option>
+                  <option value="on">on</option>
+                  <option value="for">for</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <input type="text" id="customPrepositionSingle" placeholder="Enter custom preposition"
+                  style="display: none; margin-top: 8px;">
+                <small
+                  style="color: rgba(255, 255, 255, 0.35); display: block; margin-top: 4px; font-size: 11px; font-style: italic;">e.g.,
+                  "restaurants in New York" vs "restaurants near New York"</small>
+              </div>
+
+              <div class="form-group">
                 <label for="location">Location *</label>
                 <input type="text" id="location" placeholder="e.g., New York, NY" required>
-              </div>
-
-              <div class="form-group">
-                <label for="refinement">Refinement</label>
-                <input type="text" id="refinement" placeholder="e.g., Manhattan">
-              </div>
-
-              <div class="form-group">
-                <label class="switch-label">
-                  <span>Scrape Website Links</span>
-                  <label class="switch">
-                    <input type="checkbox" id="extractWebsites">
-                    <span class="slider"></span>
-                  </label>
-                </label>
+                <small
+                  style="color: rgba(255, 255, 255, 0.35); display: block; margin-top: 4px; font-size: 11px; font-style: italic;">Recommended:
+                  Narrow down search to get better results</small>
               </div>
 
               <div class="form-group">
@@ -324,6 +315,9 @@
                     <span class="slider"></span>
                   </label>
                 </label>
+                <small
+                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Email
+                  extraction will be significantly slower</small>
               </div>
             </div>
 
@@ -335,27 +329,30 @@
               </div>
 
               <div class="form-group">
-                <label class="switch-label">
-                  <span>Scrape Website Links</span>
-                  <label class="switch">
-                    <input type="checkbox" id="extractWebsitesBulk">
-                    <span class="slider"></span>
-                  </label>
-                </label>
+                <label for="searchPrepositionBulk">Search Preposition</label>
+                <select id="searchPrepositionBulk">
+                  <option value="in">in</option>
+                  <option value="near">near</option>
+                  <option value="around">around</option>
+                  <option value="at">at</option>
+                  <option value="on">on</option>
+                  <option value="for">for</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <input type="text" id="customPrepositionBulk" placeholder="Enter custom preposition"
+                  style="display: none; margin-top: 8px;">
+                <small
+                  style="color: rgba(255, 255, 255, 0.35); display: block; margin-top: 4px; font-size: 11px; font-style: italic;">e.g.,
+                  "restaurants in New York" vs "restaurants near New York"</small>
               </div>
 
               <div class="form-group">
-                <label class="switch-label">
-                  <span>Extract Emails</span>
-                  <label class="switch">
-                    <input type="checkbox" id="extractEmailsBulk">
-                    <span class="slider"></span>
-                  </label>
-                </label>
+                <label for="bulkQueries">Locations (One per line)</label>
+                <textarea id="bulkQueries" rows="4" placeholder="Enter locations line by line..."></textarea>
               </div>
 
               <div class="form-group">
-                <label>Upload CSV / Enter Queries</label>
+                <label>Upload CSV</label>
                 <p class="help-text">Upload a CSV with 1 column of locations (no header required)</p>
                 <div id="dropZone" class="drop-zone">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -369,7 +366,16 @@
               </div>
 
               <div class="form-group">
-                <textarea id="bulkQueries" rows="4" placeholder="Enter locations line by line..."></textarea>
+                <label class="switch-label">
+                  <span>Extract Emails</span>
+                  <label class="switch">
+                    <input type="checkbox" id="extractEmailsBulk">
+                    <span class="slider"></span>
+                  </label>
+                </label>
+                <small
+                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Email
+                  extraction will be significantly slower</small>
               </div>
 
               <div class="bulk-preview" id="bulkPreview" style="display: none;">
