@@ -38,7 +38,7 @@ async function handleConsent(page) {
  * Scrolls the main results panel on Google Maps until the end is reached.
  */
 async function scrollResultsFeed(page, speed) {
-  const scrollDelay = speed === 'fast' ? 800 : 1500;
+  const scrollDelay = 1500; // Always use normal mode delay
   // Updated selector to catch multiple possible selectors Google uses
   const scrollableElementSelectors = [
     'div[aria-label^="Results for"]',

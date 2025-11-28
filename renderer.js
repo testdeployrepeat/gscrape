@@ -116,6 +116,15 @@ document.getElementById('closeSettingsBtn').addEventListener('click', () => {
   document.getElementById('settingsModal').classList.remove('show');
 });
 
+// Help Modal Event Listeners
+document.getElementById('helpBtn').addEventListener('click', () => {
+  document.getElementById('helpModal').classList.add('show');
+});
+
+document.getElementById('closeHelpBtn').addEventListener('click', () => {
+  document.getElementById('helpModal').classList.remove('show');
+});
+
 // Support Modal Event Listeners
 document.getElementById('supportBtn').addEventListener('click', () => {
   document.getElementById('supportModal').classList.add('show');
@@ -135,6 +144,72 @@ document.getElementById('performanceMode').addEventListener('change', (e) => {
   const isChecked = e.target.checked;
   localStorage.setItem('performanceMode', isChecked);
 });
+
+// Copy email functionality
+document.getElementById('copyEmailBtn').addEventListener('click', () => {
+  const email = 'joserobertodeguia@gmail.com';
+  navigator.clipboard.writeText(email).then(() => {
+    showCopiedNotification();
+  }).catch(err => {
+    console.error('Failed to copy email: ', err);
+  });
+});
+
+// Create a function to show the "Copied" notification
+function showCopiedNotification() {
+  // Remove any existing notifications
+  const existingNotification = document.getElementById('copied-notification');
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+
+  const copyEmailBtn = document.getElementById('copyEmailBtn');
+  if (!copyEmailBtn) return;
+
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.id = 'copied-notification';
+  notification.textContent = 'Copied!';
+  notification.style.position = 'absolute';
+  notification.style.backgroundColor = 'var(--success, #10b981)';
+  notification.style.color = 'white';
+  notification.style.padding = '6px 12px';
+  notification.style.borderRadius = '4px';
+  notification.style.zIndex = '10000';
+  notification.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+  notification.style.opacity = '0';
+  notification.style.transform = 'translateY(10px)';
+  notification.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+  notification.style.fontSize = '12px';
+  notification.style.whiteSpace = 'nowrap';
+
+  // Position the notification near the email button
+  const rect = copyEmailBtn.getBoundingClientRect();
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+  const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+  notification.style.top = (rect.top + scrollTop - 35) + 'px'; // Position above the button
+  notification.style.left = (rect.left + scrollLeft + rect.width/2 - notification.offsetWidth/2) + 'px';
+
+  document.body.appendChild(notification);
+
+  // Trigger animation
+  setTimeout(() => {
+    notification.style.opacity = '1';
+    notification.style.transform = 'translateY(0)';
+  }, 10);
+
+  // Remove after 3 seconds
+  setTimeout(() => {
+    notification.style.opacity = '0';
+    notification.style.transform = 'translateY(10px)';
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 300);
+  }, 3000);
+}
 
 // Preposition dropdown handlers
 searchPrepositionSingle.addEventListener('change', (e) => {
@@ -724,221 +799,89 @@ async function startBulkScraping() {
   startTimer();
   const queryStartTimes = [];
 
-  // Check if fast mode is selected to enable parallel processing
-  const isFastMode = speedSelect.value === 'fast';
+  // Original sequential processing for both normal and fast mode (fast mode now behaves like normal for delays)
+  for (let i = startIndex; i < bulkQueries.length; i++) {
+    const queryStartTime = Date.now();
 
-  if (isFastMode) {
-    // Process queries in parallel (up to 2 at a time) for fast mode
-    for (let i = startIndex; i < bulkQueries.length; i += 2) {
-      if (!isScrapingActive) {
-        // Save current index for resume
+    if (!isScrapingActive) {
+      // Save current index for resume
+      localStorage.setItem(resumeKey, i.toString());
+      break;
+    }
+
+    const location = bulkQueries[i];
+    // Get preposition from dropdown
+    let preposition = searchPrepositionBulk.value;
+    if (preposition === 'custom') {
+      preposition = customPrepositionBulk.value.trim() || 'in';
+    }
+    const query = `${niche} ${preposition} ${location}`;
+
+    currentQuery.textContent = i + 1;
+    currentSearchQuery.textContent = query;
+
+    progressText.textContent = `Processing: ${query}`;
+    progressFill.style.width = `${((i / bulkQueries.length) * 100)}%`;
+
+    const options = {
+      niche,
+      location,
+      speed: speedSelect.value,
+      extractEmails: extractEmailsBulkCheckbox.checked,
+      headless: headlessModeCheckbox.checked
+    };
+
+    try {
+      const result = await window.electronAPI.startScraping(options);
+
+      if (result.stopped) {
         localStorage.setItem(resumeKey, i.toString());
         break;
       }
 
-      // Process up to 2 queries in parallel
-      const queryPromises = [];
-      const maxParallel = Math.min(2, bulkQueries.length - i);
+      if (result.success && result.data.length > 0) {
+        const dataWithQuery = result.data.map(item => ({
+          ...item,
+          search_query: query,
+          search_location: location
+        }));
 
-      for (let j = 0; j < maxParallel; j++) {
-        const queryIndex = i + j;
-        if (queryIndex >= bulkQueries.length) break;
+        scrapedData.push(...dataWithQuery);
+        totalResults += result.data.length;
 
-        const location = bulkQueries[queryIndex];
-        // Get preposition from dropdown
-        let preposition = searchPrepositionBulk.value;
-        if (preposition === 'custom') {
-          preposition = customPrepositionBulk.value.trim() || 'in';
-        }
-        const query = `${niche} ${preposition} ${location}`;
-
-        // Update progress to show current batch
-        currentQuery.textContent = queryIndex + 1;
-        currentSearchQuery.textContent = query;
-
-        progressText.textContent = `Processing: ${query}`;
-        progressFill.style.width = `${((queryIndex / bulkQueries.length) * 100)}%`;
-
-        const options = {
-          niche,
-          location,
-          speed: speedSelect.value,
-          extractEmails: extractEmailsBulkCheckbox.checked,
-          headless: headlessModeCheckbox.checked
-        };
-
-        // Create a promise for this query
-        const queryPromise = new Promise(async (resolve) => {
-          try {
-            if (!isScrapingActive) {
-              localStorage.setItem(resumeKey, queryIndex.toString());
-              resolve();
-              return;
-            }
-
-            const result = await window.electronAPI.startScraping(options);
-
-            if (!isScrapingActive) {
-              localStorage.setItem(resumeKey, queryIndex.toString());
-              resolve();
-              return;
-            }
-
-            if (result.stopped) {
-              localStorage.setItem(resumeKey, queryIndex.toString());
-              isScrapingActive = false;
-              resolve();
-              return;
-            }
-
-            if (result.success && result.data.length > 0) {
-              const dataWithQuery = result.data.map(item => ({
-                ...item,
-                search_query: query,
-                search_location: location
-              }));
-
-              // Use a lock or mutex pattern to safely update shared data
-              scrapedData.push(...dataWithQuery);
-              totalResults += result.data.length;
-
-              // Add to history immediately after each query
-              history.searches.push({
-                query,
-                count: result.data.length,
-                timestamp: new Date().toISOString(),
-                data: dataWithQuery // Save the actual data
-              });
-
-              // Save history after each query
-              await window.electronAPI.saveHistory(history);
-
-              // Update progress for this specific query
-              if (isScrapingActive) {
-                progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
-                progressText.style.color = 'var(--success)';
-              }
-            } else if (isScrapingActive) {
-              progressText.textContent = `⚠ ${query}: No results found`;
-              progressText.style.color = 'var(--warning)';
-            }
-          } catch (error) {
-            console.error(`Error scraping ${query}:`, error);
-            if (isScrapingActive) {
-              progressText.textContent = `✗ ${query}: Error occurred`;
-              progressText.style.color = 'var(--error)';
-            }
-          } finally {
-            // Update UI after each completed query (but not too frequently to avoid performance issues)
-            if (isScrapingActive) {
-              renderHistory();
-              renderResults(scrapedData);
-              updateStats();
-            }
-            resolve();
-          }
+        // Add to history immediately after each query
+        history.searches.push({
+          query,
+          count: result.data.length,
+          timestamp: new Date().toISOString(),
+          data: dataWithQuery // Save the actual data
         });
 
-        queryPromises.push(queryPromise);
-      }
+        // Save history after each query
+        await window.electronAPI.saveHistory(history);
 
-      // Wait for all queries in this batch to complete before starting the next batch
-      await Promise.all(queryPromises);
-      
-      // Update progress after each batch
-      const currentProgress = Math.min(i + maxParallel, bulkQueries.length);
-      progressFill.style.width = `${((currentProgress / bulkQueries.length) * 100)}%`;
-      
-      // Small delay between batches to prevent overwhelming
-      if (isScrapingActive) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Update UI immediately
+        renderHistory();
+        renderResults(scrapedData);
+        updateStats();
+
+        progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
+        progressText.style.color = 'var(--success)';
+      } else {
+        progressText.textContent = `⚠ ${query}: No results found`;
+        progressText.style.color = 'var(--warning)';
       }
+    } catch (error) {
+      console.error(`Error scraping ${query}:`, error);
+      progressText.textContent = `✗ ${query}: Error occurred`;
+      progressText.style.color = 'var(--error)';
     }
-  } else {
-    // Original sequential processing for normal mode
-    for (let i = startIndex; i < bulkQueries.length; i++) {
-      const queryStartTime = Date.now();
-
-      if (!isScrapingActive) {
-        // Save current index for resume
-        localStorage.setItem(resumeKey, i.toString());
-        break;
-      }
-
-      const location = bulkQueries[i];
-      // Get preposition from dropdown
-      let preposition = searchPrepositionBulk.value;
-      if (preposition === 'custom') {
-        preposition = customPrepositionBulk.value.trim() || 'in';
-      }
-      const query = `${niche} ${preposition} ${location}`;
-
-      currentQuery.textContent = i + 1;
-      currentSearchQuery.textContent = query;
-
-      progressText.textContent = `Processing: ${query}`;
-      progressFill.style.width = `${((i / bulkQueries.length) * 100)}%`;
-
-      const options = {
-        niche,
-        location,
-        speed: speedSelect.value,
-        extractEmails: extractEmailsBulkCheckbox.checked,
-        headless: headlessModeCheckbox.checked
-      };
-
-      try {
-        const result = await window.electronAPI.startScraping(options);
-
-        if (result.stopped) {
-          localStorage.setItem(resumeKey, i.toString());
-          break;
-        }
-
-        if (result.success && result.data.length > 0) {
-          const dataWithQuery = result.data.map(item => ({
-            ...item,
-            search_query: query,
-            search_location: location
-          }));
-
-          scrapedData.push(...dataWithQuery);
-          totalResults += result.data.length;
-
-          // Add to history immediately after each query
-          history.searches.push({
-            query,
-            count: result.data.length,
-            timestamp: new Date().toISOString(),
-            data: dataWithQuery // Save the actual data
-          });
-
-          // Save history after each query
-          await window.electronAPI.saveHistory(history);
-
-          // Update UI immediately
-          renderHistory();
-          renderResults(scrapedData);
-          updateStats();
-
-          progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
-          progressText.style.color = 'var(--success)';
-        } else {
-          progressText.textContent = `⚠ ${query}: No results found`;
-          progressText.style.color = 'var(--warning)';
-        }
-      } catch (error) {
-        console.error(`Error scraping ${query}:`, error);
-        progressText.textContent = `✗ ${query}: Error occurred`;
-        progressText.style.color = 'var(--error)';
-      }
 
 
-      // Save progress
-      localStorage.setItem(resumeKey, (i + 1).toString());
+    // Save progress
+    localStorage.setItem(resumeKey, (i + 1).toString());
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
 
   // Stop timer
@@ -1084,21 +1027,20 @@ function clearResults() {
     return;
   }
 
-  if (confirm('Are you sure you want to clear the current results?')) {
-    scrapedData = [];
-    resultsContainer.innerHTML = '<div class="empty-state"><p>No results yet</p></div>';
-    resultsActions.style.display = 'none';
+  scrapedData = [];
+  resultsContainer.innerHTML = '<div class="empty-state"><p>No results yet</p></div>';
+  resultsActions.style.display = 'none';
 
-    // Reset stats
-    document.getElementById('totalCompanies').textContent = '0';
-    document.getElementById('totalWebsites').textContent = '0';
-    document.getElementById('totalPhones').textContent = '0';
+  // Reset stats
+  document.getElementById('totalCompanies').textContent = '0';
+  document.getElementById('totalWebsites').textContent = '0';
+  document.getElementById('totalPhones').textContent = '0';
+  document.getElementById('totalEmails').textContent = '0';
 
-    // Reset progress
-    progressText.textContent = 'Ready to scrape';
-    progressFill.style.width = '0%';
-    if (progressPercent) progressPercent.textContent = '0%';
-  }
+  // Reset progress
+  progressText.textContent = 'Ready to scrape';
+  progressFill.style.width = '0%';
+  if (progressPercent) progressPercent.textContent = '0%';
 }
 function renderResults(data) {
   if (!data || data.length === 0) {
@@ -1365,6 +1307,7 @@ function updateStats() {
   let totalCompanies = 0;
   let totalWebsites = 0;
   let totalPhones = 0;
+  let totalEmails = 0;
   let lastUpdate = '-';
 
   if (history.searches && history.searches.length > 0) {
@@ -1373,6 +1316,7 @@ function updateStats() {
         totalCompanies += search.data.length;
         totalWebsites += search.data.filter(item => item.website).length;
         totalPhones += search.data.filter(item => item.phone).length;
+        totalEmails += search.data.filter(item => item.email).length;
       }
     });
 
@@ -1384,6 +1328,7 @@ function updateStats() {
   document.getElementById('totalCompanies').textContent = totalCompanies.toLocaleString();
   document.getElementById('totalWebsites').textContent = totalWebsites.toLocaleString();
   document.getElementById('totalPhones').textContent = totalPhones.toLocaleString();
+  document.getElementById('totalEmails').textContent = totalEmails.toLocaleString();
   const lastUpdateEl = document.getElementById('lastUpdate');
   if (lastUpdateEl) {
     lastUpdateEl.textContent = lastUpdate;
