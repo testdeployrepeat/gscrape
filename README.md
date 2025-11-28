@@ -5,9 +5,8 @@ A fast, powerful, open-source desktop application for scraping business data fro
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
 
-## 🆕 What's New (v1.1.0)
+## 🆕 What's New (v1.1.0)s
 - Major UI update
-- Updated package.json version
 - Minor bug fixes and improvements
 
 ## 📥 Installation / Download
@@ -22,6 +21,7 @@ A fast, powerful, open-source desktop application for scraping business data fro
 > **✅ Chrome Bundled**: No Chrome installation required!
 
 ### macOS/Linux
+
 Run from source:
 ```bash
 git clone https://github.com/testdeployrepeat/gscrape.git
