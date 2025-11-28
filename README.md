@@ -5,7 +5,7 @@ A fast, powerful, open-source desktop application for scraping business data fro
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
 
-## 🆕 What's New (v1.1.0)s
+## 🆕 What's New (v1.1.0)
 - Major UI update
 - Minor bug fixes and improvements
 
