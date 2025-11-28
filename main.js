@@ -203,78 +203,44 @@ ipcMain.handle('toggle-devtools', async () => {
     return { success: true };
 });
 
-ipcMain.handle('export-data', async (event, { data, format, filename, defaultPath }) => {
+ipcMain.handle('export-data', async (event, { data, format, filename }) => {
     try {
-        let filePath;
+        // Show save dialog
+        const result = await dialog.showSaveDialog(mainWindow, {
+            defaultPath: filename,
+            filters: [
+                { name: format.toUpperCase(), extensions: [format] }
+            ]
+        });
 
-        if (defaultPath) {
-            // Use default path directly
-            const fsSync = require('fs');
-            filePath = path.join(defaultPath, filename);
+        if (!result.filePath) return { success: false, cancelled: true };
+        let filePath = result.filePath;
 
-            let content;
-            if (format === 'json') {
-                content = JSON.stringify(data, null, 2);
-            } else if (format === 'csv') {
-                if (data.length === 0) {
-                    content = '';
-                } else {
-                    const headers = Object.keys(data[0]);
-                    const csvRows = [headers.join(',')];
+        let content;
+        if (format === 'json') {
+            content = JSON.stringify(data, null, 2);
+        } else if (format === 'csv') {
+            if (data.length === 0) {
+                content = '';
+            } else {
+                const headers = Object.keys(data[0]);
+                const csvRows = [headers.join(',')];
 
-                    for (const row of data) {
-                        const values = headers.map(header => {
-                            const value = row[header] || '';
-                            const escaped = ('' + value).replace(/"/g, '""');
-                            return `"${escaped}"`;
-                        });
-                        csvRows.push(values.join(','));
-                    }
-
-                    content = csvRows.join('\n');
+                for (const row of data) {
+                    const values = headers.map(header => {
+                        const value = row[header] || '';
+                        const escaped = ('' + value).replace(/"/g, '""');
+                        return `"${escaped}"`;
+                    });
+                    csvRows.push(values.join(','));
                 }
+
+                content = csvRows.join('\n');
             }
-
-            fsSync.writeFileSync(filePath, content, 'utf-8');
-            return { success: true, filePath };
-        } else {
-            // Show save dialog
-            const result = await dialog.showSaveDialog(mainWindow, {
-                defaultPath: filename,
-                filters: [
-                    { name: format.toUpperCase(), extensions: [format] }
-                ]
-            });
-
-            if (!result.filePath) return { success: false, cancelled: true };
-            filePath = result.filePath;
-
-            let content;
-            if (format === 'json') {
-                content = JSON.stringify(data, null, 2);
-            } else if (format === 'csv') {
-                if (data.length === 0) {
-                    content = '';
-                } else {
-                    const headers = Object.keys(data[0]);
-                    const csvRows = [headers.join(',')];
-
-                    for (const row of data) {
-                        const values = headers.map(header => {
-                            const value = row[header] || '';
-                            const escaped = ('' + value).replace(/"/g, '""');
-                            return `"${escaped}"`;
-                        });
-                        csvRows.push(values.join(','));
-                    }
-
-                    content = csvRows.join('\n');
-                }
-            }
-
-            await fs.writeFile(filePath, content, 'utf8');
-            return { success: true, filePath };
         }
+
+        await fs.writeFile(filePath, content, 'utf8');
+        return { success: true, filePath };
     } catch (error) {
         return { success: false, error: error.message };
     }

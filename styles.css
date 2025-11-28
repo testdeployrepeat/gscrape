@@ -212,6 +212,7 @@ body {
 }
 
 @media (max-width: 900px) {
+
   .col-config,
   .col-results,
   .col-history {
@@ -485,11 +486,17 @@ input:checked+.slider:before {
   transition: all var(--transition);
 }
 
-.btn-tutorial:hover,
-.btn-support:hover {
+.btn-tutorial:hover {
   background: var(--bg-hover);
   border-color: var(--accent-primary);
   color: var(--accent-primary);
+  transform: translateY(-1px);
+}
+
+.btn-support:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  color: white;
   transform: translateY(-1px);
 }
 
@@ -631,7 +638,7 @@ input:checked+.slider:before {
 
 /* Progress Section */
 #progressSection {
-  margin-bottom: 24px;  
+  margin-bottom: 24px;
 }
 
 .progress-track {
@@ -763,6 +770,33 @@ input:checked+.slider:before {
   color: var(--text-primary);
 }
 
+/* Contact/Social Icons Styling */
+.contact-icon {
+  color: #9ca3af !important;
+  transition: color var(--transition);
+}
+
+:root[data-theme="light"] .contact-icon {
+  color: #6b7280 !important;
+}
+
+.support-link:hover .contact-icon {
+  color: var(--accent-primary) !important;
+}
+
+.settings-social-link {
+  color: #9ca3af !important;
+  transition: color var(--transition);
+}
+
+:root[data-theme="light"] .settings-social-link {
+  color: #6b7280 !important;
+}
+
+.settings-social-link:hover {
+  color: var(--accent-primary) !important;
+}
+
 /* Loading Animation */
 @keyframes spin {
   to {
@@ -807,6 +841,7 @@ input:checked+.slider:before {
 /* Settings Button */
 .btn-icon {
   background: var(--bg-secondary);
+
   border: 1px solid var(--border-color);
   cursor: pointer;
   padding: 6px;
@@ -833,11 +868,11 @@ input:checked+.slider:before {
   transition: all var(--transition-fast);
 }
 
-:root[data-theme="light"] .btn-icon svg {
+:root[data-theme="light"] .btn-icon:not(#closeSettingsBtn):not(#closeHelpBtn):not(#closeSupportBtn):not(#closeConfirmClearBtn):not(#closeExportOptionsBtn):not(#closeDeleteConfirmBtn) svg {
   fill: var(--text-primary);
 }
 
-:root[data-theme="dark"] .btn-icon svg {
+:root[data-theme="dark"] .btn-icon:not(#closeSettingsBtn):not(#closeHelpBtn):not(#closeSupportBtn):not(#closeConfirmClearBtn):not(#closeExportOptionsBtn):not(#closeDeleteConfirmBtn) svg {
   fill: var(--text-primary);
 }
 
@@ -1266,39 +1301,14 @@ input:checked+.slider:before {
   box-shadow: var(--shadow-md);
 }
 
+button.support-link {
+  text-align: left;
+}
+
 .support-link svg {
   width: 40px;
   height: 40px;
   flex-shrink: 0;
-}
-
-:root[data-theme="dark"] #helpModal .support-link.email svg {
-  color: var(--text-secondary);
-}
-
-:root[data-theme="dark"] #helpModal .support-link.linkedin svg {
-  color: #0077b5;
-}
-
-:root[data-theme="dark"] #helpModal .support-link.x svg {
-  color: #d0d0d0; /* Light gray for dark mode */
-}
-
-:root[data-theme="dark"] #helpModal .support-link.github svg {
-  color: #a0a0a0;
-}
-
-/* Dark mode colors for settings section icons */
-:root[data-theme="dark"] .settings-group a[href*="linkedin.com"] {
-  color: #0077b5 !important;
-}
-
-:root[data-theme="dark"] .settings-group a[href*="github.com"] {
-  color: #a0a0a0 !important;
-}
-
-:root[data-theme="dark"] .settings-group a[href*="x.com"] {
-  color: #d0d0d0 !important; /* Light gray for dark mode */
 }
 
 .support-link.paypal svg {
