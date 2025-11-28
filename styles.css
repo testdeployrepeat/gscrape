@@ -1458,6 +1458,12 @@ button.support-link {
   border: 1px solid var(--accent-warning);
 }
 
+.status-badge.paused {
+  background: rgba(99, 102, 241, 0.2); /* Light indigo background */
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+}
+
 /* Resume Button */
 .resume-bulk {
   background: var(--accent-primary) !important;

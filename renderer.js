@@ -49,6 +49,7 @@ const resultsContainer = document.getElementById('resultsContainer');
 const resultsActions = document.getElementById('resultsActions');
 const resultsCount = document.getElementById('resultsCount');
 const historyContainer = document.getElementById('historyContainer');
+const bulkSessionContainer = document.getElementById('bulkSessionContainer');
 const combineAllBtn = document.getElementById('combineAllBtn');
 const selectAllLink = document.getElementById('selectAllLink');
 const exportSelectedBtn = document.getElementById('exportSelectedBtn');
@@ -407,6 +408,7 @@ async function loadHistory() {
 function renderHistory() {
   if (!history.searches || history.searches.length === 0) {
     historyContainer.innerHTML = '<p class="empty-text">No history yet</p>';
+    bulkSessionContainer.innerHTML = '<p class="empty-text">No bulk sessions yet</p>';
     combineAllBtn.style.display = 'none';
     selectAllLink.style.display = 'none';
     exportSelectedBtn.style.display = 'none';
@@ -414,51 +416,90 @@ function renderHistory() {
     return;
   }
 
-  // Show combine all button
-  combineAllBtn.style.display = 'flex';
+  // Filter records for regular history and bulk sessions
+  const regularHistory = history.searches.filter(item => !item.isBulk);
+  const bulkSessions = history.searches.filter(item => item.isBulk);
 
-  // Show selection controls
-  selectAllLink.style.display = 'inline';
-  selectAllLink.textContent = 'Select All';
-  updateSelectionUI();
+  // Show regular history
+  if (regularHistory.length === 0) {
+    historyContainer.innerHTML = '<p class="empty-text">No history yet</p>';
+  } else {
+    // Show combine all button
+    combineAllBtn.style.display = 'flex';
 
-  historyContainer.innerHTML = history.searches
-    .slice(-10)
-    .reverse()
-    .map(item => {
-      const statusLabel = item.status === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' : '';
-      const resumeBtn = item.status === 'cancelled' && item.isBulk ?
-        `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-        </button>` : '';
+    // Show selection controls
+    selectAllLink.style.display = 'inline';
+    selectAllLink.textContent = 'Select All';
+    updateSelectionUI();
 
-      const isChecked = selectedHistoryItems.has(item.timestamp) ? 'checked' : '';
+    historyContainer.innerHTML = regularHistory
+      .slice(-10)
+      .reverse()
+      .map(item => {
+        const isChecked = selectedHistoryItems.has(item.timestamp) ? 'checked' : '';
 
-      return `
-      <div class="history-item clickable has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
-        <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
-        <div class="history-content">
-          <div class="history-query">${escapeHtml(item.query)} ${statusLabel}</div>
-          <div class="history-meta">
-            ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
+        return `
+        <div class="history-item clickable has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+          <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
+          <div class="history-content">
+            <div class="history-query">${escapeHtml(item.query)}</div>
+            <div class="history-meta">
+              ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
+            </div>
+          </div>
+          <div class="history-actions">
+            <button class="btn-icon export-history" title="Export this record">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
+              </svg>
+            </button>
           </div>
         </div>
-        <div class="history-actions">
-          ${resumeBtn}
-          <button class="btn-icon export-history" title="Export this record">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    `;
-    })
-    .join('');
+      `;
+      })
+      .join('');
+  }
 
-  // Add checkbox change handlers
+  // Show bulk sessions
+  if (bulkSessions.length === 0) {
+    bulkSessionContainer.innerHTML = '<p class="empty-text">No bulk sessions yet</p>';
+  } else {
+    bulkSessionContainer.innerHTML = bulkSessions
+      .slice(-10)
+      .reverse()
+      .map(item => {
+        const statusLabel = item.status === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' :
+                           item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' : '';
+        const resumeBtn = (item.status === 'cancelled' || item.status === 'paused') && item.isBulk ?
+          `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+          </button>` : '';
+
+        return `
+        <div class="history-item" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+          <div class="history-content">
+            <div class="history-query">${escapeHtml(item.query)} ${statusLabel}</div>
+            <div class="history-meta">
+              ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
+            </div>
+          </div>
+          <div class="history-actions">
+            ${resumeBtn}
+            <button class="btn-icon export-history" title="Export this record">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+      })
+      .join('');
+  }
+
+  // Add checkbox change handlers for regular history items
   document.querySelectorAll('.history-checkbox').forEach(cb => {
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
@@ -477,8 +518,8 @@ function renderHistory() {
     });
   });
 
-  // Add click handlers for history items to display results
-  document.querySelectorAll('.history-item.clickable').forEach(item => {
+  // Add click handlers for regular history items to display results
+  document.querySelectorAll('#historyContainer .history-item.clickable').forEach(item => {
     item.addEventListener('click', (e) => {
       // Don't trigger if clicking on checkbox or action buttons
       if (e.target.classList.contains('history-checkbox') || e.target.closest('.history-actions')) return;
@@ -503,7 +544,7 @@ function renderHistory() {
     });
   });
 
-  // Add click handlers for resume buttons
+  // Add click handlers for resume buttons (for bulk sessions)
   document.querySelectorAll('.resume-bulk').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -514,7 +555,8 @@ function renderHistory() {
       const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
       if (!record || !record.bulkData) return;
 
-      showCustomAlert('Resume Bulk Scraping', `Resume scraping for "${record.bulkData.niche}"?\n\nThis will continue from where it was cancelled.`);
+      const statusMessage = record.status === 'paused' ? 'paused' : 'cancelled';
+      showCustomAlert('Resume Bulk Scraping', `Resume scraping for "${record.bulkData.niche}"?\n\nThis will continue from where it was ${statusMessage}.`);
 
       // Restore bulk mode state
       bulkModeToggle.checked = true;
@@ -1004,14 +1046,14 @@ async function startBulkScraping() {
 
   if (scrapedData.length > 0) {
     if (wasCancelled && currentIndex < bulkQueries.length) {
-      // Save cancelled bulk operation to history with resume data
+      // Save paused bulk operation to history with resume data
       const remainingQueries = bulkQueries.slice(currentIndex);
       history.searches.push({
         query: `Bulk: ${niche} (${currentIndex}/${bulkQueries.length} completed)`,
         count: scrapedData.length,
         timestamp: new Date().toISOString(),
         data: scrapedData,
-        status: 'cancelled',
+        status: 'paused',
         isBulk: true,
         bulkData: {
           niche,
@@ -1023,7 +1065,7 @@ async function startBulkScraping() {
       renderHistory();
       updateStats();
 
-      progressText.textContent = `⏸ Cancelled. Scraped ${scrapedData.length} businesses (${currentIndex}/${bulkQueries.length} queries completed)`;
+      progressText.textContent = `⏸ Paused. Scraped ${scrapedData.length} businesses (${currentIndex}/${bulkQueries.length} queries completed)`;
       progressText.style.color = 'var(--warning)';
     } else {
       progressText.textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
