@@ -1464,11 +1464,50 @@ button.support-link {
   border: 1px solid var(--accent-primary);
 }
 
+.status-badge.processing {
+  background: rgba(34, 197, 94, 0.2); /* Light green background */
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
 /* Resume Button */
 .resume-bulk {
   background: var(--accent-primary) !important;
   color: white !important;
-  border-color: var(--accent-primary) !important;
+}
+
+/* Query Status Modal */
+.query-item {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.query-item:last-child {
+  border-bottom: none;
+}
+
+.query-location {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.query-status.status-scraped {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.query-status.status-continue {
+  color: var(--accent-warning);
+  font-weight: 500;
+}
+
+.queries-list {
+  margin-top: 10px;
+}
+
+.resume-bulk {
+  background: var(--accent-primary) !important;
+  color: white !important;
 }
 
 .resume-bulk:hover {

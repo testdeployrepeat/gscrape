@@ -3,6 +3,7 @@ let history = { searches: [] };
 let bulkQueries = [];
 let isBulkMode = false;
 let isScrapingActive = false;
+let currentBulkOperation = null; // Track current bulk operation
 let map;
 let marker;
 let startTime = null;
@@ -54,11 +55,15 @@ const combineAllBtn = document.getElementById('combineAllBtn');
 const selectAllLink = document.getElementById('selectAllLink');
 const exportSelectedBtn = document.getElementById('exportSelectedBtn');
 const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+const bulkDeleteSelectedBtn = document.getElementById('bulkDeleteSelectedBtn');
 
 // Settings Elements
 const headlessModeCheckbox = document.getElementById('headlessMode');
 const defaultExportFormatSelect = document.getElementById('defaultExportFormat');
 const developerModeCheckbox = document.getElementById('developerMode');
+
+// Track which delete operation is being performed
+let currentDeleteOperation = 'all'; // 'all' for all selected items, 'bulk' for only bulk sessions
 
 // Track selected history items
 let selectedHistoryItems = new Set();
@@ -100,6 +105,12 @@ exportSelectedBtn.addEventListener('click', () => {
 });
 deleteSelectedBtn.addEventListener('click', () => {
   const count = selectedHistoryItems.size;
+  if (count === 0) {
+    showCustomAlert('No Records Selected', 'Please select at least one record to delete.');
+    return;
+  }
+
+  currentDeleteOperation = 'all'; // Set context to delete all selected items
   document.getElementById('deleteCount').textContent = count;
   document.getElementById('deleteConfirmModal').classList.add('show');
 });
@@ -293,7 +304,28 @@ document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
 
 document.getElementById('confirmDeleteBtn').addEventListener('click', () => {
   document.getElementById('deleteConfirmModal').classList.remove('show');
-  deleteSelectedRecords();
+  if (currentDeleteOperation === 'bulk') {
+    deleteSelectedBulkRecords();
+  } else {
+    deleteSelectedRecords(); // Default behavior for all records
+  }
+});
+
+// Bulk Delete Selected Records
+bulkDeleteSelectedBtn.addEventListener('click', () => {
+  const selectedBulkItems = Array.from(selectedHistoryItems).filter(timestamp => {
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && record.isBulk;
+  });
+
+  if (selectedBulkItems.length === 0) {
+    showCustomAlert('No Bulk Sessions Selected', 'Please select at least one bulk session record to delete.');
+    return;
+  }
+
+  currentDeleteOperation = 'bulk'; // Set context to delete only bulk sessions
+  document.getElementById('deleteCount').textContent = selectedBulkItems.length;
+  document.getElementById('deleteConfirmModal').classList.add('show');
 });
 
 // Bulk mode file handling
@@ -469,7 +501,8 @@ function renderHistory() {
       .reverse()
       .map(item => {
         const statusLabel = item.status === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' :
-                           item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' : '';
+                           item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' :
+                           item.status === 'processing' ? '<span class="status-badge processing">Processing</span>' : '';
         const resumeBtn = (item.status === 'cancelled' || item.status === 'paused') && item.isBulk ?
           `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -477,8 +510,16 @@ function renderHistory() {
             </svg>
           </button>` : '';
 
+        const isChecked = selectedHistoryItems.has(item.timestamp) ? 'checked' : '';
+        const eyeIcon = item.isBulk ?
+          `<button class="btn-icon view-queries" title="View queries" data-timestamp="${item.timestamp}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+            </svg>
+          </button>` : '';
         return `
-        <div class="history-item" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+        <div class="history-item has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+          <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
           <div class="history-content">
             <div class="history-query">${escapeHtml(item.query)} ${statusLabel}</div>
             <div class="history-meta">
@@ -486,10 +527,16 @@ function renderHistory() {
             </div>
           </div>
           <div class="history-actions">
+            ${eyeIcon}
             ${resumeBtn}
             <button class="btn-icon export-history" title="Export this record">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
+              </svg>
+            </button>
+            <button class="btn-icon delete-history" title="Delete this record" data-timestamp="${item.timestamp}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
               </svg>
             </button>
           </div>
@@ -499,7 +546,7 @@ function renderHistory() {
       .join('');
   }
 
-  // Add checkbox change handlers for regular history items
+  // Add checkbox change handlers for all history items (regular and bulk sessions)
   document.querySelectorAll('.history-checkbox').forEach(cb => {
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
@@ -518,8 +565,8 @@ function renderHistory() {
     });
   });
 
-  // Add click handlers for regular history items to display results
-  document.querySelectorAll('#historyContainer .history-item.clickable').forEach(item => {
+  // Add click handlers for all history items (regular and bulk sessions) to display results
+  document.querySelectorAll('.history-item.clickable, .history-item.has-checkbox').forEach(item => {
     item.addEventListener('click', (e) => {
       // Don't trigger if clicking on checkbox or action buttons
       if (e.target.classList.contains('history-checkbox') || e.target.closest('.history-actions')) return;
@@ -556,18 +603,53 @@ function renderHistory() {
       if (!record || !record.bulkData) return;
 
       const statusMessage = record.status === 'paused' ? 'paused' : 'cancelled';
-      showCustomAlert('Resume Bulk Scraping', `Resume scraping for "${record.bulkData.niche}"?\n\nThis will continue from where it was ${statusMessage}.`);
+      const confirmed = await showConfirmationModal('Resume Bulk Scraping', `Resume scraping for "${record.bulkData.niche}"?\n\nThis will continue from where it was ${statusMessage}.`);
 
-      // Restore bulk mode state
-      bulkModeToggle.checked = true;
-      toggleBulkMode();
-      bulkNicheInput.value = record.bulkData.niche;
-      bulkQueries = record.bulkData.remainingQueries;
-      bulkQueriesInput.value = bulkQueries.join('\n');
-      updateBulkPreview();
+      if (confirmed) {
+        // Find the record to resume
+        const recordIndex = history.searches.findIndex(s => s.query === query && s.timestamp === timestamp);
+        if (recordIndex !== -1) {
+          const originalRecord = history.searches[recordIndex];
 
-      // Start scraping
-      await startBulkScraping();
+          // Update the record status to processing
+          originalRecord.status = 'processing';
+
+          // Identify which queries need to be processed (the remaining ones)
+          // Set their status to 'pending' so they get processed
+          if (originalRecord.bulkData && originalRecord.bulkData.queryStatus) {
+            // Find the original full query list and mark only remaining queries as pending
+            const queryStatus = originalRecord.bulkData.queryStatus;
+
+            // Reset all queries in remainingQueries to 'pending' and others to 'completed'
+            for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+              if (queryStatus[i]) {
+                const queryLocation = queryStatus[i].location;
+                // Mark as pending if it's in remaining queries, completed otherwise
+                queryStatus[i].status = record.bulkData.remainingQueries.includes(queryLocation) ? 'pending' : 'completed';
+              }
+            }
+          }
+        }
+
+        // Save the updated history
+        await window.electronAPI.saveHistory(history);
+
+        // Refresh the UI to show the updated status
+        renderHistory();
+
+        // Restore bulk mode state
+        bulkModeToggle.checked = true;
+        toggleBulkMode();
+        bulkNicheInput.value = record.bulkData.niche;
+        bulkQueries = record.bulkData.remainingQueries;
+        bulkQueriesInput.value = bulkQueries.join('\n');
+        updateBulkPreview();
+
+        // No need to set currentBulkOperation here - it's handled in startBulkScraping
+
+        // Start scraping with resume info to avoid creating a new record
+        await startBulkScraping(timestamp); // Pass the timestamp of the resumed record
+      }
     });
   });
 
@@ -596,6 +678,189 @@ function renderHistory() {
         showCustomAlert('Export Successful', `History data exported to:\n${result.filePath}`);
       } else if (!result.cancelled) {
         showCustomAlert('Export Failed', result.error);
+      }
+    });
+  });
+
+  // Add click handlers for view queries buttons
+  document.querySelectorAll('.view-queries').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const timestamp = btn.dataset.timestamp;
+
+      // Find the matching history record
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      if (!record || !record.isBulk) return;
+
+      // Create query status list
+      let queryList = '<div style="max-height: 400px; overflow-y: auto; margin-top: 10px;">';
+
+      if (record.bulkData && record.bulkData.queryStatus) {
+        // Use the detailed query status information
+        const queryStatus = record.bulkData.queryStatus;
+
+        // Display queries in order with their status
+        for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+          if (queryStatus[i]) {
+            const location = queryStatus[i].location;
+            const status = queryStatus[i].status === 'completed' ? 'scraped' : 'to be continued';
+            const statusClass = queryStatus[i].status === 'completed' ? 'status-scraped' : 'status-continue';
+            queryList += `<div class="query-item"><span class="query-location">${escapeHtml(location)}</span> - <span class="query-status ${statusClass}">${status}</span></div>`;
+          }
+        }
+      } else if (record.bulkData && record.bulkData.queries) {
+        // Fallback to original method if queryStatus is not available
+        const allQueries = record.bulkData.queries;
+        const completedCount = record.bulkData.completedCount || 0;
+
+        allQueries.forEach((query, index) => {
+          const status = index < completedCount ? 'scraped' : 'to be continued';
+          const statusClass = index < completedCount ? 'status-scraped' : 'status-continue';
+          queryList += `<div class="query-item"><span class="query-location">${escapeHtml(query)}</span> - <span class="query-status ${statusClass}">${status}</span></div>`;
+        });
+      } else if (record.bulkData && record.bulkData.remainingQueries) {
+        // If we only have remaining queries
+        const totalQueries = record.query.match(/\((\d+) locations\)/);
+        const total = totalQueries ? parseInt(totalQueries[1]) : 0;
+        const completed = total - record.bulkData.remainingQueries.length;
+
+        // Generate list of all queries and mark each
+        for (let i = 0; i < total; i++) {
+          const status = i < completed ? 'scraped' : 'to be continued';
+          const statusClass = i < completed ? 'status-scraped' : 'status-continue';
+          queryList += `<div class="query-item"><span class="query-location">Query ${i + 1}</span> - <span class="query-status ${statusClass}">${status}</span></div>`;
+        }
+      } else {
+        queryList += '<div class="query-item">No query info available</div>';
+      }
+
+      queryList += '</div>';
+
+      showQueryStatusModal(record.query, queryList);
+    });
+  });
+
+  // Add click handlers for delete buttons in both regular and bulk history items
+  document.querySelectorAll('.delete-history').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const timestamp = btn.dataset.timestamp;
+
+      // Find the matching history record
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      if (!record) return;
+
+      // Confirm deletion
+      if (confirm(`Are you sure you want to delete this record?\n\nQuery: ${record.query}`)) {
+        // Remove from history
+        history.searches = history.searches.filter(s => s.timestamp !== timestamp);
+
+        // Save and refresh UI
+        window.electronAPI.saveHistory(history)
+          .then(() => {
+            renderHistory();
+            updateStats();
+          })
+          .catch(err => console.error('Error saving history after deletion:', err));
+      }
+    });
+  });
+}
+
+// Show query status modal
+function showQueryStatusModal(title, content) {
+  // Remove existing modal if any
+  const existingModal = document.getElementById('queryStatusModal');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'queryStatusModal';
+  modal.className = 'modal show';
+  modal.innerHTML = `
+    <div class="modal-content" style="width: 500px; max-width: 90vw;">
+      <div class="modal-header">
+        <h2>Query Status</h2>
+        <button class="btn-icon" onclick="this.closest('#queryStatusModal').remove()" style="margin-left: auto;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="font-weight: 500; margin-bottom: 8px;">${escapeHtml(title)}</p>
+        <div class="queries-list">
+          ${content}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="this.closest('#queryStatusModal').remove()">Close</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Close modal when clicking outside
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+}
+
+// Show confirmation modal that returns a promise
+function showConfirmationModal(title, message) {
+  return new Promise((resolve) => {
+    // Remove existing modal if any
+    const existingModal = document.getElementById('confirmationModal');
+    if (existingModal) existingModal.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'confirmationModal';
+    modal.className = 'modal show';
+    modal.innerHTML = `
+      <div class="modal-content" style="width: 500px; max-width: 90vw;">
+        <div class="modal-header">
+          <h2>${escapeHtml(title)}</h2>
+          <button class="btn-icon" id="closeConfirmationModal">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="text-align: center; color: var(--text-secondary); white-space: pre-line;">${escapeHtml(message)}</p>
+          <div style="display: flex; justify-content: center; gap: 12px; margin-top: 20px;">
+            <button class="btn-secondary" id="cancelResumeBtn">Cancel</button>
+            <button class="btn-primary" id="confirmResumeBtn">Resume</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Add event listeners
+    document.getElementById('closeConfirmationModal').addEventListener('click', () => {
+      modal.remove();
+      resolve(false);
+    });
+
+    document.getElementById('cancelResumeBtn').addEventListener('click', () => {
+      modal.remove();
+      resolve(false);
+    });
+
+    document.getElementById('confirmResumeBtn').addEventListener('click', () => {
+      modal.remove();
+      resolve(true);
+    });
+
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+        resolve(false);
       }
     });
   });
@@ -773,7 +1038,7 @@ async function startSingleScraping() {
   }
 }
 
-async function startBulkScraping() {
+async function startBulkScraping(resumedTimestamp = null) {
   const niche = bulkNicheInput.value.trim();
   const selectedSpeed = speedSelect.value;
 
@@ -785,6 +1050,75 @@ async function startBulkScraping() {
   if (bulkQueries.length === 0) {
     alert('Please upload a CSV file or enter queries manually');
     return;
+  }
+
+  let timestamp;
+  if (resumedTimestamp) {
+    // This is a resumed operation, use the existing timestamp
+    timestamp = resumedTimestamp;
+  } else {
+    // This is a new operation, create a new timestamp
+    timestamp = new Date().toISOString();
+  }
+
+  const bulkQueryLabel = `Bulk: ${niche} (${bulkQueries.length} locations)`;
+
+  // Only create a new processing record if this is not a resumed operation
+  if (!resumedTimestamp) {
+    // Create initial query status map
+    const initialQueryStatus = {};
+    bulkQueries.forEach((location, index) => {
+      initialQueryStatus[index] = { location, status: 'pending' };
+    });
+
+    // Add processing record to history immediately
+    const processingRecord = {
+      query: bulkQueryLabel,
+      count: 0,
+      timestamp: timestamp,
+      data: [],
+      status: 'processing',
+      isBulk: true,
+      bulkData: {
+        niche: niche,
+        totalQueries: bulkQueries.length,
+        completedQueries: 0,
+        queries: [...bulkQueries], // Store the original queries
+        queryStatus: initialQueryStatus, // Track status of each query
+        speed: selectedSpeed
+      }
+    };
+
+    history.searches.push(processingRecord);
+  } else {
+    // For resumed operations, the record already exists, we just need to ensure it has the right status
+    const existingRecordIndex = history.searches.findIndex(s => s.timestamp === resumedTimestamp);
+    if (existingRecordIndex !== -1) {
+      // Ensure the status is processing
+      history.searches[existingRecordIndex].status = 'processing';
+    }
+  }
+
+  await window.electronAPI.saveHistory(history);
+  renderHistory();
+
+  // Track current bulk operation - if resuming, preserve resume info
+  if (resumedTimestamp && currentBulkOperation && currentBulkOperation.resumedFromRecord) {
+    // This is a resumed operation, update the existing tracking info
+    currentBulkOperation.timestamp = timestamp;
+    currentBulkOperation.niche = niche;
+    currentBulkOperation.queries = [...bulkQueries];
+    currentBulkOperation.completedQueries = 0;
+    currentBulkOperation.results = [];
+  } else {
+    // This is a new operation, create fresh tracking info
+    currentBulkOperation = {
+      timestamp: timestamp,
+      niche: niche,
+      queries: [...bulkQueries],
+      completedQueries: 0,
+      results: []
+    };
   }
 
   // Show stop button
@@ -902,6 +1236,38 @@ async function startBulkScraping() {
           scrapedData.push(...dataWithQuery);
           totalResults += result.data.length;
 
+          // Find the processing bulk record and update its query status
+          const processingRecordIndex = history.searches.findIndex(item =>
+            item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+          );
+
+          if (processingRecordIndex !== -1) {
+            // Update the specific query status - need to find original index for resumed operations
+            const processingRecord = history.searches[processingRecordIndex];
+
+            if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
+              // Find the correct index by matching the location
+              let originalIndex = -1;
+              const queryStatus = processingRecord.bulkData.queryStatus;
+
+              for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+                if (queryStatus[i] && queryStatus[i].location === location) {
+                  originalIndex = i;
+                  break;
+                }
+              }
+
+              if (originalIndex !== -1 && queryStatus[originalIndex]) {
+                // Update the status for the specific location
+                queryStatus[originalIndex].status = 'completed';
+                processingRecord.bulkData.completedQueries += 1;
+              }
+            }
+
+            // Update total count
+            history.searches[processingRecordIndex].count += result.data.length;
+          }
+
           // Add to history immediately after each query
           history.searches.push({
             query,
@@ -921,6 +1287,35 @@ async function startBulkScraping() {
           progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
           progressText.style.color = 'var(--success)';
         } else {
+          // Mark as completed even if no results
+          const processingRecordIndex = history.searches.findIndex(item =>
+            item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+          );
+
+          if (processingRecordIndex !== -1) {
+            // Update the specific query status - need to find original index for resumed operations
+            const processingRecord = history.searches[processingRecordIndex];
+
+            if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
+              // Find the correct index by matching the location
+              let originalIndex = -1;
+              const queryStatus = processingRecord.bulkData.queryStatus;
+
+              for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+                if (queryStatus[i] && queryStatus[i].location === location) {
+                  originalIndex = i;
+                  break;
+                }
+              }
+
+              if (originalIndex !== -1 && queryStatus[originalIndex]) {
+                // Update the status for the specific location
+                queryStatus[originalIndex].status = 'completed';
+                processingRecord.bulkData.completedQueries += 1;
+              }
+            }
+          }
+
           progressText.textContent = `⚠ ${query}: No results found`;
           progressText.style.color = 'var(--warning)';
         }
@@ -990,6 +1385,38 @@ async function startBulkScraping() {
           scrapedData.push(...dataWithQuery);
           totalResults += result.data.length;
 
+          // Find the processing bulk record and update its query status
+          const processingRecordIndex = history.searches.findIndex(item =>
+            item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+          );
+
+          if (processingRecordIndex !== -1) {
+            // Update the specific query status - need to find original index for resumed operations
+            const processingRecord = history.searches[processingRecordIndex];
+
+            if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
+              // Find the correct index by matching the location
+              let originalIndex = -1;
+              const queryStatus = processingRecord.bulkData.queryStatus;
+
+              for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+                if (queryStatus[i] && queryStatus[i].location === location) {
+                  originalIndex = i;
+                  break;
+                }
+              }
+
+              if (originalIndex !== -1 && queryStatus[originalIndex]) {
+                // Update the status for the specific location
+                queryStatus[originalIndex].status = 'completed';
+                processingRecord.bulkData.completedQueries += 1;
+              }
+            }
+
+            // Update total count
+            history.searches[processingRecordIndex].count += result.data.length;
+          }
+
           // Add to history immediately after each query
           history.searches.push({
             query,
@@ -1009,6 +1436,35 @@ async function startBulkScraping() {
           progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
           progressText.style.color = 'var(--success)';
         } else {
+          // Mark as completed even if no results
+          const processingRecordIndex = history.searches.findIndex(item =>
+            item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+          );
+
+          if (processingRecordIndex !== -1) {
+            // Update the specific query status - need to find original index for resumed operations
+            const processingRecord = history.searches[processingRecordIndex];
+
+            if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
+              // Find the correct index by matching the location
+              let originalIndex = -1;
+              const queryStatus = processingRecord.bulkData.queryStatus;
+
+              for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+                if (queryStatus[i] && queryStatus[i].location === location) {
+                  originalIndex = i;
+                  break;
+                }
+              }
+
+              if (originalIndex !== -1 && queryStatus[originalIndex]) {
+                // Update the status for the specific location
+                queryStatus[originalIndex].status = 'completed';
+                processingRecord.bulkData.completedQueries += 1;
+              }
+            }
+          }
+
           progressText.textContent = `⚠ ${query}: No results found`;
           progressText.style.color = 'var(--warning)';
         }
@@ -1046,21 +1502,62 @@ async function startBulkScraping() {
 
   if (scrapedData.length > 0) {
     if (wasCancelled && currentIndex < bulkQueries.length) {
-      // Save paused bulk operation to history with resume data
-      const remainingQueries = bulkQueries.slice(currentIndex);
-      history.searches.push({
-        query: `Bulk: ${niche} (${currentIndex}/${bulkQueries.length} completed)`,
-        count: scrapedData.length,
-        timestamp: new Date().toISOString(),
-        data: scrapedData,
-        status: 'paused',
-        isBulk: true,
-        bulkData: {
-          niche,
-          remainingQueries,
-          completedCount: currentIndex
+      // Find and update the existing processing record to paused
+      const processingRecordIndex = history.searches.findIndex(item =>
+        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+      );
+
+      if (processingRecordIndex !== -1) {
+        // Update the existing processing record to paused, preserving all data
+        // Calculate the actual number of completed queries based on queryStatus
+        let actualCompletedCount = 0;
+        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
+          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
+          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+            if (queryStatus[i] && queryStatus[i].status === 'completed') {
+              actualCompletedCount++;
+            }
+          }
         }
-      });
+
+        // Update the record in place rather than replacing completely
+        history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
+        history.searches[processingRecordIndex].count = scrapedData.length;
+        history.searches[processingRecordIndex].data = scrapedData;
+        history.searches[processingRecordIndex].status = 'paused';
+
+        // Update bulkData - determine remaining queries from queryStatus
+        const remainingQueries = [];
+        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
+          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
+          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+            if (queryStatus[i] && queryStatus[i].status !== 'completed') {
+              remainingQueries.push(queryStatus[i].location);
+            }
+          }
+        }
+
+        history.searches[processingRecordIndex].bulkData.niche = niche;
+        history.searches[processingRecordIndex].bulkData.remainingQueries = remainingQueries;
+        history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
+      } else {
+        // Fallback: add new record if processing record not found
+        const remainingQueries = bulkQueries.slice(currentIndex);
+        history.searches.push({
+          query: `Bulk: ${niche} (${currentIndex}/${bulkQueries.length} completed)`,
+          count: scrapedData.length,
+          timestamp: new Date().toISOString(),
+          data: scrapedData,
+          status: 'paused',
+          isBulk: true,
+          bulkData: {
+            niche,
+            remainingQueries,
+            completedCount: currentIndex
+          }
+        });
+      }
+
       await window.electronAPI.saveHistory(history);
       renderHistory();
       updateStats();
@@ -1068,10 +1565,71 @@ async function startBulkScraping() {
       progressText.textContent = `⏸ Paused. Scraped ${scrapedData.length} businesses (${currentIndex}/${bulkQueries.length} queries completed)`;
       progressText.style.color = 'var(--warning)';
     } else {
+      // Update the existing processing record to completed
+      const processingRecordIndex = history.searches.findIndex(item =>
+        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+      );
+
+      if (processingRecordIndex !== -1) {
+        history.searches[processingRecordIndex].count = scrapedData.length;
+        history.searches[processingRecordIndex].data = scrapedData;
+        history.searches[processingRecordIndex].status = 'completed';
+
+        // Update the query to show completed status
+        const totalQueries = history.searches[processingRecordIndex].bulkData.totalQueries;
+        history.searches[processingRecordIndex].query = `Bulk: ${niche} (${totalQueries}/${totalQueries} completed)`;
+      }
+
+      await window.electronAPI.saveHistory(history);
+      renderHistory();
+      updateStats();
+
       progressText.textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
       progressText.style.color = 'var(--success)';
     }
   } else {
+    // For the case when no data exists but operation was cancelled
+    if (wasCancelled) {
+      const processingRecordIndex = history.searches.findIndex(item =>
+        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+      );
+
+      if (processingRecordIndex !== -1) {
+        // Calculate completed count based on queryStatus
+        let actualCompletedCount = 0;
+        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
+          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
+          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+            if (queryStatus[i] && queryStatus[i].status === 'completed') {
+              actualCompletedCount++;
+            }
+          }
+        }
+
+        // Update the record in place rather than replacing
+        history.searches[processingRecordIndex].status = 'paused';
+        history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
+
+        // Update remaining queries based on queryStatus
+        const remainingQueries = [];
+        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
+          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
+          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+            if (queryStatus[i] && queryStatus[i].status !== 'completed') {
+              remainingQueries.push(queryStatus[i].location);
+            }
+          }
+        }
+
+        history.searches[processingRecordIndex].bulkData.remainingQueries = remainingQueries;
+        history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
+      }
+
+      await window.electronAPI.saveHistory(history);
+      renderHistory();
+      updateStats();
+    }
+
     progressText.textContent = '⏸ Scraping stopped.';
     progressText.style.color = 'var(--text-secondary)';
   }
@@ -1085,7 +1643,8 @@ async function startBulkScraping() {
 async function stopScraping() {
   if (!isScrapingActive) return;
 
-  const confirmed = confirm('Are you sure you want to stop scraping?\n\nYou will keep the data scraped so far.');
+  // Show custom confirmation modal instead of native confirm
+  const confirmed = await showStopConfirmationModal();
 
   if (confirmed) {
     isScrapingActive = false;
@@ -1094,6 +1653,69 @@ async function stopScraping() {
     progressText.textContent = '⏸ Stopping scraper...';
     progressText.style.color = 'var(--warning)';
   }
+}
+
+// Show stop confirmation modal
+function showStopConfirmationModal() {
+  return new Promise((resolve) => {
+    // Remove existing modal if any
+    const existingModal = document.getElementById('stopConfirmationModal');
+    if (existingModal) existingModal.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'stopConfirmationModal';
+    modal.className = 'modal show';
+    modal.innerHTML = `
+      <div class="modal-content" style="width: 450px; max-width: 90vw;">
+        <div class="modal-header">
+          <h2>⚠️ Stop Scraping</h2>
+          <button class="btn-icon" id="closeStopModal">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="text-align: center; color: var(--text-secondary); margin-bottom: 20px;">
+            Are you sure you want to stop scraping?
+          </p>
+          <p style="text-align: center; color: var(--text-secondary); margin-bottom: 25px; font-style: italic;">
+            You will keep the data scraped so far.
+          </p>
+          <div style="display: flex; justify-content: center; gap: 12px;">
+            <button class="btn-secondary" id="cancelStopBtn">Cancel</button>
+            <button class="btn-danger" id="confirmStopBtn">Stop Scraping</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Add event listeners
+    document.getElementById('closeStopModal').addEventListener('click', () => {
+      modal.remove();
+      resolve(false);
+    });
+
+    document.getElementById('cancelStopBtn').addEventListener('click', () => {
+      modal.remove();
+      resolve(false);
+    });
+
+    document.getElementById('confirmStopBtn').addEventListener('click', () => {
+      modal.remove();
+      resolve(true);
+    });
+
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+        resolve(false);
+      }
+    });
+  });
 }
 
 function isAlreadyScraped(query) {
@@ -1333,6 +1955,16 @@ async function clearHistory() {
       renderHistory();
       renderResults([]);
       updateStats();
+
+      // Clear any resume keys from localStorage
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('bulk_resume_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
 
       // Force a complete refresh of the UI state
       setTimeout(() => {
@@ -1727,6 +2359,37 @@ async function deleteSelectedRecords() {
   updateStats();
 
   showCustomAlert('Records Deleted', `Successfully deleted ${timestamps.length} record(s).`);
+}
+
+// Delete only selected bulk session records
+async function deleteSelectedBulkRecords() {
+  // Get only the selected bulk session records
+  const selectedBulkItems = Array.from(selectedHistoryItems).filter(timestamp => {
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && record.isBulk;
+  });
+
+  if (selectedBulkItems.length === 0) {
+    showCustomAlert('No Bulk Sessions Selected', 'No bulk session records to delete.');
+    return;
+  }
+
+  // Remove only selected bulk session records from history
+  history.searches = history.searches.filter(s => !selectedBulkItems.includes(s.timestamp));
+
+  // Save updated history
+  await window.electronAPI.saveHistory(history);
+
+  // Clear selection for the deleted items only
+  selectedBulkItems.forEach(timestamp => {
+    selectedHistoryItems.delete(timestamp);
+  });
+
+  // Update UI
+  renderHistory();
+  updateStats();
+
+  showCustomAlert('Bulk Sessions Deleted', `Successfully deleted ${selectedBulkItems.length} bulk session record(s).`);
 }
 
 function showCustomAlert(title, message) {
