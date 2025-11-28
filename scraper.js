@@ -38,7 +38,7 @@ async function handleConsent(page) {
  * Scrolls the main results panel on Google Maps until the end is reached.
  */
 async function scrollResultsFeed(page, speed) {
-  const scrollDelay = speed === 'ultra-fast' ? 300 : speed === 'fast' ? 800 : 1500;
+  const scrollDelay = speed === 'fast' ? 800 : 1500;
   // Updated selector to catch multiple possible selectors Google uses
   const scrollableElementSelectors = [
     'div[aria-label^="Results for"]',
@@ -429,8 +429,8 @@ async function extractEmailsInParallel(browser, results, speed, progressCallback
 
   progressCallback({ status: 'processing', message: `Searching ${websitesToScan.length} websites for emails...` });
 
-  const batchSize = speed === 'ultra-fast' ? 15 : speed === 'fast' ? 8 : 5;
-  const timeout = speed === 'ultra-fast' ? 10000 : speed === 'fast' ? 12000 : 15000;
+  const batchSize = speed === 'fast' ? 10 : 5;
+  const timeout = speed === 'fast' ? 14000 : 15000;
 
   let processedCount = 0;
   for (let i = 0; i < websitesToScan.length; i += batchSize) {

@@ -724,88 +724,221 @@ async function startBulkScraping() {
   startTimer();
   const queryStartTimes = [];
 
-  for (let i = startIndex; i < bulkQueries.length; i++) {
-    const queryStartTime = Date.now();
+  // Check if fast mode is selected to enable parallel processing
+  const isFastMode = speedSelect.value === 'fast';
 
-    if (!isScrapingActive) {
-      // Save current index for resume
-      localStorage.setItem(resumeKey, i.toString());
-      break;
-    }
-
-    const location = bulkQueries[i];
-    // Get preposition from dropdown
-    let preposition = searchPrepositionBulk.value;
-    if (preposition === 'custom') {
-      preposition = customPrepositionBulk.value.trim() || 'in';
-    }
-    const query = `${niche} ${preposition} ${location}`;
-
-    currentQuery.textContent = i + 1;
-    currentSearchQuery.textContent = query;
-
-    progressText.textContent = `Processing: ${query}`;
-    progressFill.style.width = `${((i / bulkQueries.length) * 100)}%`;
-
-    const options = {
-      niche,
-      location,
-      speed: speedSelect.value,
-      extractEmails: extractEmailsBulkCheckbox.checked,
-      headless: headlessModeCheckbox.checked
-    };
-
-    try {
-      const result = await window.electronAPI.startScraping(options);
-
-      if (result.stopped) {
+  if (isFastMode) {
+    // Process queries in parallel (up to 2 at a time) for fast mode
+    for (let i = startIndex; i < bulkQueries.length; i += 2) {
+      if (!isScrapingActive) {
+        // Save current index for resume
         localStorage.setItem(resumeKey, i.toString());
         break;
       }
 
-      if (result.success && result.data.length > 0) {
-        const dataWithQuery = result.data.map(item => ({
-          ...item,
-          search_query: query,
-          search_location: location
-        }));
+      // Process up to 2 queries in parallel
+      const queryPromises = [];
+      const maxParallel = Math.min(2, bulkQueries.length - i);
 
-        scrapedData.push(...dataWithQuery);
-        totalResults += result.data.length;
+      for (let j = 0; j < maxParallel; j++) {
+        const queryIndex = i + j;
+        if (queryIndex >= bulkQueries.length) break;
 
-        // Add to history immediately after each query
-        history.searches.push({
-          query,
-          count: result.data.length,
-          timestamp: new Date().toISOString(),
-          data: dataWithQuery // Save the actual data
+        const location = bulkQueries[queryIndex];
+        // Get preposition from dropdown
+        let preposition = searchPrepositionBulk.value;
+        if (preposition === 'custom') {
+          preposition = customPrepositionBulk.value.trim() || 'in';
+        }
+        const query = `${niche} ${preposition} ${location}`;
+
+        // Update progress to show current batch
+        currentQuery.textContent = queryIndex + 1;
+        currentSearchQuery.textContent = query;
+
+        progressText.textContent = `Processing: ${query}`;
+        progressFill.style.width = `${((queryIndex / bulkQueries.length) * 100)}%`;
+
+        const options = {
+          niche,
+          location,
+          speed: speedSelect.value,
+          extractEmails: extractEmailsBulkCheckbox.checked,
+          headless: headlessModeCheckbox.checked
+        };
+
+        // Create a promise for this query
+        const queryPromise = new Promise(async (resolve) => {
+          try {
+            if (!isScrapingActive) {
+              localStorage.setItem(resumeKey, queryIndex.toString());
+              resolve();
+              return;
+            }
+
+            const result = await window.electronAPI.startScraping(options);
+
+            if (!isScrapingActive) {
+              localStorage.setItem(resumeKey, queryIndex.toString());
+              resolve();
+              return;
+            }
+
+            if (result.stopped) {
+              localStorage.setItem(resumeKey, queryIndex.toString());
+              isScrapingActive = false;
+              resolve();
+              return;
+            }
+
+            if (result.success && result.data.length > 0) {
+              const dataWithQuery = result.data.map(item => ({
+                ...item,
+                search_query: query,
+                search_location: location
+              }));
+
+              // Use a lock or mutex pattern to safely update shared data
+              scrapedData.push(...dataWithQuery);
+              totalResults += result.data.length;
+
+              // Add to history immediately after each query
+              history.searches.push({
+                query,
+                count: result.data.length,
+                timestamp: new Date().toISOString(),
+                data: dataWithQuery // Save the actual data
+              });
+
+              // Save history after each query
+              await window.electronAPI.saveHistory(history);
+
+              // Update progress for this specific query
+              if (isScrapingActive) {
+                progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
+                progressText.style.color = 'var(--success)';
+              }
+            } else if (isScrapingActive) {
+              progressText.textContent = `⚠ ${query}: No results found`;
+              progressText.style.color = 'var(--warning)';
+            }
+          } catch (error) {
+            console.error(`Error scraping ${query}:`, error);
+            if (isScrapingActive) {
+              progressText.textContent = `✗ ${query}: Error occurred`;
+              progressText.style.color = 'var(--error)';
+            }
+          } finally {
+            // Update UI after each completed query (but not too frequently to avoid performance issues)
+            if (isScrapingActive) {
+              renderHistory();
+              renderResults(scrapedData);
+              updateStats();
+            }
+            resolve();
+          }
         });
 
-        // Save history after each query
-        await window.electronAPI.saveHistory(history);
-
-        // Update UI immediately
-        renderHistory();
-        renderResults(scrapedData);
-        updateStats();
-
-        progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
-        progressText.style.color = 'var(--success)';
-      } else {
-        progressText.textContent = `⚠ ${query}: No results found`;
-        progressText.style.color = 'var(--warning)';
+        queryPromises.push(queryPromise);
       }
-    } catch (error) {
-      console.error(`Error scraping ${query}:`, error);
-      progressText.textContent = `✗ ${query}: Error occurred`;
-      progressText.style.color = 'var(--error)';
+
+      // Wait for all queries in this batch to complete before starting the next batch
+      await Promise.all(queryPromises);
+      
+      // Update progress after each batch
+      const currentProgress = Math.min(i + maxParallel, bulkQueries.length);
+      progressFill.style.width = `${((currentProgress / bulkQueries.length) * 100)}%`;
+      
+      // Small delay between batches to prevent overwhelming
+      if (isScrapingActive) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
+  } else {
+    // Original sequential processing for normal mode
+    for (let i = startIndex; i < bulkQueries.length; i++) {
+      const queryStartTime = Date.now();
+
+      if (!isScrapingActive) {
+        // Save current index for resume
+        localStorage.setItem(resumeKey, i.toString());
+        break;
+      }
+
+      const location = bulkQueries[i];
+      // Get preposition from dropdown
+      let preposition = searchPrepositionBulk.value;
+      if (preposition === 'custom') {
+        preposition = customPrepositionBulk.value.trim() || 'in';
+      }
+      const query = `${niche} ${preposition} ${location}`;
+
+      currentQuery.textContent = i + 1;
+      currentSearchQuery.textContent = query;
+
+      progressText.textContent = `Processing: ${query}`;
+      progressFill.style.width = `${((i / bulkQueries.length) * 100)}%`;
+
+      const options = {
+        niche,
+        location,
+        speed: speedSelect.value,
+        extractEmails: extractEmailsBulkCheckbox.checked,
+        headless: headlessModeCheckbox.checked
+      };
+
+      try {
+        const result = await window.electronAPI.startScraping(options);
+
+        if (result.stopped) {
+          localStorage.setItem(resumeKey, i.toString());
+          break;
+        }
+
+        if (result.success && result.data.length > 0) {
+          const dataWithQuery = result.data.map(item => ({
+            ...item,
+            search_query: query,
+            search_location: location
+          }));
+
+          scrapedData.push(...dataWithQuery);
+          totalResults += result.data.length;
+
+          // Add to history immediately after each query
+          history.searches.push({
+            query,
+            count: result.data.length,
+            timestamp: new Date().toISOString(),
+            data: dataWithQuery // Save the actual data
+          });
+
+          // Save history after each query
+          await window.electronAPI.saveHistory(history);
+
+          // Update UI immediately
+          renderHistory();
+          renderResults(scrapedData);
+          updateStats();
+
+          progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
+          progressText.style.color = 'var(--success)';
+        } else {
+          progressText.textContent = `⚠ ${query}: No results found`;
+          progressText.style.color = 'var(--warning)';
+        }
+      } catch (error) {
+        console.error(`Error scraping ${query}:`, error);
+        progressText.textContent = `✗ ${query}: Error occurred`;
+        progressText.style.color = 'var(--error)';
+      }
 
 
-    // Save progress
-    localStorage.setItem(resumeKey, (i + 1).toString());
+      // Save progress
+      localStorage.setItem(resumeKey, (i + 1).toString());
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
   }
 
   // Stop timer

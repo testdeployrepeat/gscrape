@@ -25,7 +25,7 @@ desktop.ini
 .idea/
 *.swp
 *.swo
-*~
+*~T
 
 # Environment
 .env
@@ -34,3 +34,6 @@ desktop.ini
 # Temporary files
 *.tmp
 *.temp
+
+*.md
+!README.md
