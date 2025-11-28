@@ -436,6 +436,22 @@ input:checked+.slider:before {
   background: hsl(0, 90%, 50%);
 }
 
+.btn-xs {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-xs:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
@@ -1661,12 +1677,63 @@ button.support-link {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+  background-color: hsl(0, 0%, 10%); /* Darker unchecked background */
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+}
+
+/* For Firefox */
+.history-checkbox[type=checkbox] {
+  background-color: hsl(0, 0%, 10%);
+  border: 1px solid var(--border-color);
+}
+
+/* Darker styling for the fast mode parallel scraping number input */
+input[type="number"]#fastModeParallelScraping {
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 8px 12px; /* Reduced padding since no suffix now */
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  min-width: 80px;
+  transition: all var(--transition);
+  margin-right: 8px; /* Space before the default button */
+}
+
+input[type="number"]#fastModeParallelScraping:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.2);
 }
 
 .history-item.has-checkbox {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+}
+
+/* Setting header row with label on left and controls on right */
+.number-input-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+.setting-label {
+  flex-grow: 1;
+  color: var(--text-secondary); /* Lighter color like other options */
+  font-weight: 500;
+  margin-right: 12px;
+}
+
+/* Make setting subtext (small tags) more faded/darker */
+.form-group small {
+  color: var(--text-tertiary); /* More faded than the main text */
+  font-size: 13px;
+  opacity: 0.85;
 }
 
 .history-item.has-checkbox .history-content {
@@ -1758,6 +1825,42 @@ button.support-link {
 /* Add glow effect to primary button */
 .btn-primary:hover {
   box-shadow: var(--shadow-glow);
+}
+
+/* Input with suffix styling - only used for other inputs */
+.input-with-suffix {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-suffix input[type="number"] {
+  flex: 1;
+  padding-right: 60px;
+  text-align: right;
+}
+
+.input-suffix {
+  position: absolute;
+  right: 12px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Style for the parallel scraping input specifically to hide up/down arrows */
+input[type="number"]#fastModeParallelScraping {
+  -moz-appearance: textfield; /* Firefox */
+  appearance: textfield; /* Standard property */
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* Hide spinner arrows for Webkit browsers (Chrome, Safari, Edge, Opera) */
+input[type="number"]#fastModeParallelScraping::-webkit-inner-spin-button,
+input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Enhanced card shadows */

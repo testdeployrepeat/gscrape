@@ -61,6 +61,9 @@ const bulkDeleteSelectedBtn = document.getElementById('bulkDeleteSelectedBtn');
 const headlessModeCheckbox = document.getElementById('headlessMode');
 const defaultExportFormatSelect = document.getElementById('defaultExportFormat');
 const developerModeCheckbox = document.getElementById('developerMode');
+const fastModeParallelScrapingInput = document.getElementById('fastModeParallelScraping');
+const fastModeParallelWarning = document.getElementById('fastModeParallelWarning');
+const fastModeParallelScrapingDefaultBtn = document.getElementById('fastModeParallelScrapingDefault');
 
 // Track which delete operation is being performed
 let currentDeleteOperation = 'all'; // 'all' for all selected items, 'bulk' for only bulk sessions
@@ -118,6 +121,45 @@ deleteSelectedBtn.addEventListener('click', () => {
 // Settings Event Listeners
 document.getElementById('settingsBtn').addEventListener('click', () => {
   document.getElementById('settingsModal').classList.add('show');
+});
+
+// Fast Mode Parallel Scraping setting
+fastModeParallelScrapingInput.addEventListener('input', (e) => {
+  const value = parseInt(e.target.value);
+  if (value > 6) {
+    fastModeParallelWarning.style.display = 'block';
+  } else {
+    fastModeParallelWarning.style.display = 'none';
+  }
+
+  // Also validate that value is within range
+  if (value < 1) {
+    e.target.value = 1;
+  } else if (value > 10) {
+    // Allow up to 10 but show warning for values above 6
+    fastModeParallelWarning.style.display = 'block';
+  }
+
+  localStorage.setItem('fastModeParallelScraping', e.target.value);
+});
+
+// Initialize the warning display based on saved value
+fastModeParallelScrapingInput.addEventListener('change', (e) => {
+  const value = parseInt(e.target.value);
+  if (value > 6) {
+    fastModeParallelWarning.style.display = 'block';
+  } else {
+    fastModeParallelWarning.style.display = 'none';
+  }
+});
+
+// Fast Mode Parallel Scraping Default Button
+fastModeParallelScrapingDefaultBtn.addEventListener('click', () => {
+  fastModeParallelScrapingInput.value = '2'; // Set to default value
+  localStorage.setItem('fastModeParallelScraping', '2');
+
+  // Update warning display after setting default
+  fastModeParallelWarning.style.display = 'none';
 });
 
 document.getElementById('closeSettingsBtn').addEventListener('click', () => {
@@ -907,7 +949,7 @@ async function startSingleScraping() {
   const location = locationInput.value.trim();
 
   if (!niche || !location) {
-    alert('Please fill in both Niche and Location fields');
+    showCustomAlert('Missing Fields', 'Please fill in both Niche and Location fields');
     return;
   }
 
@@ -1043,12 +1085,12 @@ async function startBulkScraping(resumedTimestamp = null) {
   const selectedSpeed = speedSelect.value;
 
   if (!niche) {
-    alert('Please enter a business niche');
+    showCustomAlert('Missing Niche', 'Please enter a business niche');
     return;
   }
 
   if (bulkQueries.length === 0) {
-    alert('Please upload a CSV file or enter queries manually');
+    showCustomAlert('Missing Queries', 'Please upload a CSV file or enter queries manually');
     return;
   }
 
@@ -1154,11 +1196,13 @@ async function startBulkScraping(resumedTimestamp = null) {
 
   // Check if running in fast mode for parallel processing
   if (selectedSpeed === 'fast' || selectedSpeed === 'ultra-fast') {
-    // Parallel processing for fast mode: process 2 queries at a time
-    const parallelLimit = 2;
+    // Parallel processing for fast mode: use user-defined number of queries at a time
+    const defaultParallelLimit = 2;
+    const savedParallelLimit = parseInt(localStorage.getItem('fastModeParallelScraping')) || defaultParallelLimit;
+    const parallelLimit = savedParallelLimit > 0 ? savedParallelLimit : defaultParallelLimit;
     let completedQueries = startIndex; // Track completed queries for progress
 
-    // Process queries in batches of 2
+    // Process queries in batches of user-defined size
     for (let i = startIndex; i < bulkQueries.length; i += parallelLimit) {
       if (!isScrapingActive) {
         // Save current index for resume
@@ -2053,6 +2097,18 @@ async function initializeSettings() {
   const developerMode = localStorage.getItem('developerMode') === 'true';
   if (developerModeCheckbox) {
     developerModeCheckbox.checked = developerMode;
+  }
+
+  // Initialize Fast Mode Parallel Scraping
+  const fastModeParallelValue = localStorage.getItem('fastModeParallelScraping') || '2';
+  fastModeParallelScrapingInput.value = fastModeParallelValue;
+
+  // Show warning if the saved value is above 6
+  const numericValue = parseInt(fastModeParallelValue);
+  if (numericValue > 6) {
+    fastModeParallelWarning.style.display = 'block';
+  } else {
+    fastModeParallelWarning.style.display = 'none';
   }
 }
 

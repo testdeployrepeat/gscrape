@@ -302,6 +302,19 @@
               <small>Enable F12 key to open developer tools (off by default)</small>
             </div>
             <div class="form-group">
+              <label class="switch-label">
+                <span>Fast Mode Parallel Scraping</span>
+                <div class="number-input-control">
+                  <input type="number" id="fastModeParallelScraping" min="1" max="10" value="2">
+                  <button type="button" id="fastModeParallelScrapingDefault" class="btn-xs">Default</button>
+                </div>
+              </label>
+              <small>Adjust the number of queries to process simultaneously in fast mode.</small>
+              <div id="fastModeParallelWarning" class="warning-message" style="display: none; color: #f59e0b; margin-top: 5px; font-size: 13px;">
+                ⚠️ Warning: Setting this too high may cause rate limiting or performance issues
+              </div>
+            </div>
+            <div class="form-group">
               <label class="switch-label" style="opacity: 0.6; cursor: not-allowed;">
                 <span>Use Proxies (Coming Soon)</span>
                 <label class="switch">
@@ -309,7 +322,7 @@
                   <span class="slider" style="background-color: #ccc;"></span>
                 </label>
               </label>
-              <small style="opacity: 0.6;">Route requests through proxies to avoid IP bans.</small>
+              <small style="opacity: 0.6;">Route requests through proxies.</small>
             </div>
           </div>
 
