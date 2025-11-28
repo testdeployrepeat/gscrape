@@ -136,10 +136,7 @@ document.getElementById('themeSelect').addEventListener('change', (e) => {
   localStorage.setItem('theme', theme);
 });
 
-document.getElementById('performanceMode').addEventListener('change', (e) => {
-  const isChecked = e.target.checked;
-  localStorage.setItem('performanceMode', isChecked);
-});
+
 
 // Copy email functionality
 document.getElementById('copyEmailBtn').addEventListener('click', () => {
@@ -185,7 +182,7 @@ function showCopiedNotification() {
   const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
 
   notification.style.top = (rect.top + scrollTop - 35) + 'px'; // Position above the button
-  notification.style.left = (rect.left + scrollLeft + rect.width/2 - notification.offsetWidth/2) + 'px';
+  notification.style.left = (rect.left + scrollLeft + rect.width / 2 - notification.offsetWidth / 2) + 'px';
 
   document.body.appendChild(notification);
 
@@ -1349,9 +1346,7 @@ async function initializeSettings() {
   document.getElementById('themeSelect').value = savedTheme;
   document.documentElement.setAttribute('data-theme', savedTheme);
 
-  // Initialize performance mode
-  const performanceMode = localStorage.getItem('performanceMode') === 'true';
-  document.getElementById('performanceMode').checked = performanceMode;
+
 
   // Initialize preposition dropdowns
   const savedPrepositionSingle = localStorage.getItem('searchPrepositionSingle') || 'in';

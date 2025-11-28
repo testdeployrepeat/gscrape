@@ -274,26 +274,6 @@
                 <option value="light">Light Mode</option>
               </select>
             </div>
-            <div class="form-group">
-              <label class="switch-label">
-                <span>High Performance Mode</span>
-                <label class="switch">
-                  <input type="checkbox" id="performanceMode">
-                  <span class="slider"></span>
-                </label>
-              </label>
-              <small>Disables animations and blur effects for a faster experience.</small>
-            </div>
-            <div class="form-group">
-              <label class="switch-label">
-                <span>Developer Mode</span>
-                <label class="switch">
-                  <input type="checkbox" id="developerMode">
-                  <span class="slider"></span>
-                </label>
-              </label>
-              <small>Enable F12 key to open developer tools (off by default)</small>
-            </div>
           </div>
 
 
@@ -309,6 +289,26 @@
                 </label>
               </label>
               <small>Run the scraper in the background without opening a visible browser window.</small>
+            </div>
+            <div class="form-group">
+              <label class="switch-label">
+                <span>Developer Mode</span>
+                <label class="switch">
+                  <input type="checkbox" id="developerMode">
+                  <span class="slider"></span>
+                </label>
+              </label>
+              <small>Enable F12 key to open developer tools (off by default)</small>
+            </div>
+            <div class="form-group">
+              <label class="switch-label" style="opacity: 0.6; cursor: not-allowed;">
+                <span>Use Proxies (Coming Soon)</span>
+                <label class="switch">
+                  <input type="checkbox" id="useProxies" disabled>
+                  <span class="slider" style="background-color: #ccc;"></span>
+                </label>
+              </label>
+              <small style="opacity: 0.6;">Route requests through proxies to avoid IP bans.</small>
             </div>
           </div>
 
