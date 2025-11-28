@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -30,6 +30,81 @@ function createWindow() {
 
     // Uncomment for debugging
     // mainWindow.webContents.openDevTools();
+
+    // Create custom menu to ensure shortcuts work
+    const menuTemplate = [
+        {
+            label: 'File',
+            submenu: [
+                { role: 'quit' }
+            ]
+        },
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' },
+                { role: 'delete' },
+                { type: 'separator' },
+                { role: 'selectAll' }
+            ]
+        },
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { role: 'forceReload' },
+                {
+                    label: 'Toggle Developer Tools',
+                    accelerator: 'F12',
+                    click: () => {
+                        mainWindow.webContents.toggleDevTools();
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'Reset Zoom',
+                    accelerator: 'CommandOrControl+0',
+                    click: () => {
+                        mainWindow.webContents.setZoomLevel(0);
+                    }
+                },
+                {
+                    label: 'Zoom In',
+                    accelerator: 'CommandOrControl+=',
+                    click: () => {
+                        const currentZoom = mainWindow.webContents.getZoomLevel();
+                        mainWindow.webContents.setZoomLevel(currentZoom + 0.5);
+                    }
+                },
+                {
+                    label: 'Zoom In (Plus)',
+                    accelerator: 'CommandOrControl+Plus',
+                    click: () => {
+                        const currentZoom = mainWindow.webContents.getZoomLevel();
+                        mainWindow.webContents.setZoomLevel(currentZoom + 0.5);
+                    }
+                },
+                {
+                    label: 'Zoom Out',
+                    accelerator: 'CommandOrControl+-',
+                    click: () => {
+                        const currentZoom = mainWindow.webContents.getZoomLevel();
+                        mainWindow.webContents.setZoomLevel(currentZoom - 0.5);
+                    }
+                },
+                { type: 'separator' },
+                { role: 'togglefullscreen' }
+            ]
+        }
+    ];
+
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(menu);
 }
 
 app.whenReady().then(createWindow);
@@ -119,6 +194,13 @@ ipcMain.handle('stop-scraping', async () => {
     } catch (error) {
         return { success: false, error: error.message };
     }
+});
+
+ipcMain.handle('toggle-devtools', async () => {
+    if (mainWindow) {
+        mainWindow.webContents.toggleDevTools();
+    }
+    return { success: true };
 });
 
 ipcMain.handle('export-data', async (event, { data, format, filename, defaultPath }) => {

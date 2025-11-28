@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exportData: (data) => ipcRenderer.invoke('export-data', data),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     exportDataToFolder: (data) => ipcRenderer.invoke('export-data-to-folder', data),
-    onScrapingProgress: (callback) => ipcRenderer.on('scraping-progress', (event, data) => callback(data))
+    onScrapingProgress: (callback) => ipcRenderer.on('scraping-progress', (event, data) => callback(data)),
+    toggleDevTools: () => ipcRenderer.invoke('toggle-devtools')
 });

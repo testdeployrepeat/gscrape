@@ -12,7 +12,7 @@ A fast, powerful, open-source desktop application for scraping business data fro
 ## 📥 Installation / Download
 
 ### Windows
-1. Download the latest release: [GScrape v1.1.0.exe](https://github.com/testdeployrepeat/gscrape/releases/download/v1.1.0/gscrape.Setup.1.1.0.exe)
+1. Download the latest release: [GScrape v1.2.0.exe](https://github.com/testdeployrepeat/gscrape/releases/download/v1.1.0/gscrape.Setup.1.1.0.exe)
 2. Run the installer
 3. Launch from Desktop or Start Menu
 

@@ -58,21 +58,13 @@ const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
 const headlessModeCheckbox = document.getElementById('headlessMode');
 const defaultExportFormatSelect = document.getElementById('defaultExportFormat');
 const autoSaveResultsCheckbox = document.getElementById('autoSaveResults');
+const saveHistoryDataCheckbox = document.getElementById('saveHistoryData');
 const defaultExportPathInput = document.getElementById('defaultExportPath');
 const selectExportFolderBtn = document.getElementById('selectExportFolderBtn');
+const developerModeCheckbox = document.getElementById('developerMode');
 
 // Track selected history items
 let selectedHistoryItems = new Set();
-
-// Defensive null checks for critical elements
-if (!bulkModeToggle || !singleMode || !bulkMode) {
-  console.error('Critical DOM elements missing!', {
-    bulkModeToggle: !!bulkModeToggle,
-    singleMode: !!singleMode,
-    bulkMode: !!bulkMode
-  });
-  alert('Application failed to load properly. Please refresh the page.');
-}
 
 // Initialize with error handling
 try {
@@ -97,7 +89,6 @@ try {
 bulkModeToggle.addEventListener('change', toggleBulkMode);
 startBtn.addEventListener('click', startScraping);
 stopBtn.addEventListener('click', stopScraping);
-exportBtn.addEventListener('click', exportData);
 exportBtn.addEventListener('click', exportData);
 clearResultsBtn.addEventListener('click', clearResults);
 combineAllBtn.addEventListener('click', combineAllHistory);
@@ -143,7 +134,6 @@ document.getElementById('themeSelect').addEventListener('change', (e) => {
 document.getElementById('performanceMode').addEventListener('change', (e) => {
   const isChecked = e.target.checked;
   localStorage.setItem('performanceMode', isChecked);
-  // Remove the performance-mode class since we're using a simpler design
 });
 
 // Preposition dropdown handlers
@@ -187,8 +177,30 @@ autoSaveResultsCheckbox.addEventListener('change', (e) => {
   localStorage.setItem('autoSaveResults', e.target.checked);
 });
 
-document.getElementById('saveHistoryData').addEventListener('change', (e) => {
+saveHistoryDataCheckbox.addEventListener('change', (e) => {
   localStorage.setItem('saveHistoryData', e.target.checked);
+});
+
+// Developer Mode Listener
+if (developerModeCheckbox) {
+  developerModeCheckbox.addEventListener('change', (e) => {
+    localStorage.setItem('developerMode', e.target.checked);
+  });
+}
+
+// F12 Interception
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'F12') {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const developerMode = localStorage.getItem('developerMode') === 'true';
+    if (developerMode) {
+      // Toggle DevTools via Electron API
+      window.electronAPI.toggleDevTools();
+    }
+    return false;
+  }
 });
 
 // Default Export Folder
@@ -407,7 +419,7 @@ function renderHistory() {
       // Update select all checkbox
       const allCheckboxes = document.querySelectorAll('.history-checkbox');
       const allChecked = Array.from(allCheckboxes).every(c => c.checked);
-      selectAllHistory.checked = allChecked;
+      // selectAllHistory.checked = allChecked; // Removed as selectAllHistory is not defined
     });
   });
 
@@ -515,9 +527,13 @@ function stopTimer() {
   }
 }
 
-
-
 async function startScraping() {
+  // Auto-clear previous results
+  scrapedData = [];
+  resultsContainer.innerHTML = '<div class="empty-state"><p>Scraping in progress...</p></div>';
+  resultsActions.style.display = 'none';
+  resultsCount.textContent = '0';
+
   if (isBulkMode) {
     await startBulkScraping();
   } else {
@@ -1201,6 +1217,12 @@ async function initializeSettings() {
   // Initialize default export path
   const defaultPath = localStorage.getItem('defaultExportPath') || '';
   defaultExportPathInput.value = defaultPath;
+
+  // Initialize Developer Mode
+  const developerMode = localStorage.getItem('developerMode') === 'true';
+  if (developerModeCheckbox) {
+    developerModeCheckbox.checked = developerMode;
+  }
 }
 
 function updateStats() {
