@@ -218,6 +218,13 @@ document.getElementById('themeSelect').addEventListener('change', (e) => {
   localStorage.setItem('theme', theme);
 });
 
+// Webhook URL event listener
+const webhookUrlInput = document.getElementById('webhookUrl');
+if (webhookUrlInput) {
+  webhookUrlInput.addEventListener('input', (e) => {
+    localStorage.setItem('webhookUrl', e.target.value);
+  });
+}
 
 
 // Copy email functionality
@@ -591,8 +598,8 @@ function renderHistory() {
       .reverse()
       .map(item => {
         const statusLabel = item.status === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' :
-                           item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' :
-                           item.status === 'processing' ? '<span class="status-badge processing">Processing</span>' : '';
+          item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' :
+            item.status === 'processing' ? '<span class="status-badge processing">Processing</span>' : '';
         const resumeBtn = (item.status === 'cancelled' || item.status === 'paused') && item.isBulk ?
           `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -793,7 +800,7 @@ function renderHistory() {
         for (let i = 0; i < Object.keys(queryStatus).length; i++) {
           if (queryStatus[i]) {
             const location = queryStatus[i].location;
-            const status = queryStatus[i].status === 'completed' ? 'scraped' : 'to be continued';
+            const status = queryStatus[i].status === 'completed' ? 'Scraped' : 'No';
             const statusClass = queryStatus[i].status === 'completed' ? 'status-scraped' : 'status-continue';
             const checkboxId = `query-checkbox-${i}-${timestamp}`;
             queryList += `<div class="query-item">
@@ -810,7 +817,7 @@ function renderHistory() {
         const completedCount = record.bulkData.completedCount || 0;
 
         allQueries.forEach((query, index) => {
-          const status = index < completedCount ? 'scraped' : 'to be continued';
+          const status = index < completedCount ? 'Scraped' : 'No';
           const statusClass = index < completedCount ? 'status-scraped' : 'status-continue';
           const checkboxId = `query-checkbox-${index}-${timestamp}`;
           queryList += `<div class="query-item">
@@ -828,7 +835,7 @@ function renderHistory() {
 
         // Generate list of all queries and mark each
         for (let i = 0; i < total; i++) {
-          const status = i < completed ? 'scraped' : 'to be continued';
+          const status = i < completed ? 'Scraped' : 'No';
           const statusClass = i < completed ? 'status-scraped' : 'status-continue';
           const checkboxId = `query-checkbox-${i}-${timestamp}`;
           queryList += `<div class="query-item">
@@ -844,7 +851,7 @@ function renderHistory() {
 
       queryList += '</div>';
 
-      showQueryStatusModal(record.query, queryList);
+      showQueryStatusModal(record.query, queryList, timestamp);
     });
   });
 
@@ -876,7 +883,7 @@ function renderHistory() {
 }
 
 // Show query status modal
-function showQueryStatusModal(title, content) {
+function showQueryStatusModal(title, content, timestamp) {
   // Remove existing modal if any
   const existingModal = document.getElementById('queryStatusModal');
   if (existingModal) existingModal.remove();
@@ -885,27 +892,29 @@ function showQueryStatusModal(title, content) {
   modal.id = 'queryStatusModal';
   modal.className = 'modal show';
   modal.innerHTML = `
-    <div class="modal-content" style="width: 500px; max-width: 90vw;">
+    <div class="modal-content">
       <div class="modal-header">
         <h2>Query Status</h2>
-        <button class="btn-icon" onclick="this.closest('#queryStatusModal').remove()" style="margin-left: auto;">
+        <button class="btn-icon" onclick="this.closest('#queryStatusModal').remove()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
           </svg>
         </button>
       </div>
       <div class="modal-body">
-        <p style="font-weight: 500; margin-bottom: 8px;">${escapeHtml(title)}</p>
-        <div class="queries-list">
+        <p style="text-align: center; margin-bottom: 20px; color: var(--text-secondary);">
+          ${escapeHtml(title)}
+        </p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-size: 14px; color: var(--text-secondary);">Select queries to export:</span>
+          <button id="selectAllQueriesBtn" style="padding: 4px 8px; border: none; background: transparent; color: rgba(255, 255, 255, 0.5); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s ease; text-decoration: none;">Select All</button>
+        </div>
+        <div class="queries-list" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
           ${content}
         </div>
-        <div style="margin-top: 15px; text-align: center;">
-          <button id="selectAllQueriesBtn" class="btn-sm" style="margin-right: 8px;">Select All</button>
-          <button id="exportSelectedQueriesBtn" class="btn-sm btn-primary">Export Selected</button>
+        <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+          <button id="exportSelectedQueriesBtn" class="btn-primary">Export Selected</button>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-secondary" onclick="this.closest('#queryStatusModal').remove()">Close</button>
       </div>
     </div>
   `;
@@ -918,9 +927,32 @@ function showQueryStatusModal(title, content) {
   const checkboxes = modal.querySelectorAll('.query-checkbox');
 
   selectAllBtn.addEventListener('click', () => {
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+
     checkboxes.forEach(checkbox => {
-      checkbox.checked = true;
+      checkbox.checked = !allChecked;
     });
+
+    // Update button text and styling
+    if (allChecked) {
+      selectAllBtn.textContent = 'Select All';
+      selectAllBtn.style.textDecoration = 'none';
+    } else {
+      selectAllBtn.textContent = 'Deselect All';
+      selectAllBtn.style.textDecoration = 'underline';
+    }
+  });
+
+  // Add hover effect
+  selectAllBtn.addEventListener('mouseenter', () => {
+    selectAllBtn.style.color = 'rgba(255, 255, 255, 0.9)';
+    selectAllBtn.style.textDecoration = 'underline';
+  });
+
+  selectAllBtn.addEventListener('mouseleave', () => {
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    selectAllBtn.style.color = 'rgba(255, 255, 255, 0.5)';
+    selectAllBtn.style.textDecoration = allChecked ? 'underline' : 'none';
   });
 
   exportBtn.addEventListener('click', () => {
@@ -931,7 +963,8 @@ function showQueryStatusModal(title, content) {
     }
 
     // Get the original bulk record to access the full data
-    const bulkRecord = history.searches.find(s => s.query === title);
+    // Get the original bulk record to access the full data
+    const bulkRecord = history.searches.find(s => s.timestamp === timestamp);
     if (!bulkRecord || !bulkRecord.data || !Array.isArray(bulkRecord.data)) {
       alert('No data available for export.');
       return;
@@ -939,13 +972,38 @@ function showQueryStatusModal(title, content) {
 
     // Filter the bulk data based on selected queries
     const selectedLocations = Array.from(selectedCheckboxes).map(cb => cb.dataset.location);
+
+    // Debug logging
+    console.log('Selected locations:', selectedLocations);
+    console.log('Total items in bulk record:', bulkRecord.data.length);
+
     const filteredData = bulkRecord.data.filter(item => {
-      // Check if the item's search_location or search_query matches any selected location
-      const itemLocation = item.search_location || (item.search_query ? item.search_query.split(' ').slice(-1)[0] : '');
-      return selectedLocations.some(loc =>
-        itemLocation.includes(loc) ||
-        (item.search_query && item.search_query.includes(loc))
-      );
+      const itemSearchQuery = item.search_query || '';
+
+      // Check if this item matches any of the selected locations
+      const matches = selectedLocations.some(selectedLoc => {
+        // Try multiple matching strategies
+        const lowerQuery = itemSearchQuery.toLowerCase();
+        const lowerLoc = selectedLoc.toLowerCase();
+
+        // Check if the query ends with this location (most reliable)
+        if (lowerQuery.endsWith(lowerLoc)) return true;
+
+        // Check if the location appears as a complete word
+        const words = lowerQuery.split(/\s+/);
+        if (words.includes(lowerLoc)) return true;
+
+        // For multi-word locations, check if they appear together
+        if (lowerLoc.includes(' ') && lowerQuery.includes(lowerLoc)) return true;
+
+        return false;
+      });
+
+      if (matches) {
+        console.log('Matched item:', itemSearchQuery);
+      }
+
+      return matches;
     });
 
     if (filteredData.length === 0) {
@@ -973,17 +1031,33 @@ async function exportFilteredData(bulkRecord, selectedLocations) {
   }
 
   // Filter the bulk data based on selected queries
+  console.log('Filtering data for locations:', selectedLocations);
+  console.log('Total data items:', bulkRecord.data.length);
+
   const filteredData = bulkRecord.data.filter(item => {
-    // Check if the item's search_location or search_query matches any selected location
-    const itemSearchLocation = item.search_location || '';
     const itemSearchQuery = item.search_query || '';
 
-    // Look for matches in either the search location or search query
-    return selectedLocations.some(loc =>
-      itemSearchLocation.includes(loc) ||
-      itemSearchQuery.includes(loc)
-    );
+    const matches = selectedLocations.some(selectedLoc => {
+      const lowerQuery = itemSearchQuery.toLowerCase();
+      const lowerLoc = selectedLoc.toLowerCase();
+
+      // Check if the query ends with this location
+      if (lowerQuery.endsWith(lowerLoc)) return true;
+
+      // Check if the location appears as a complete word
+      const words = lowerQuery.split(/\s+/);
+      if (words.includes(lowerLoc)) return true;
+
+      // For multi-word locations, check if they appear together
+      if (lowerLoc.includes(' ') && lowerQuery.includes(lowerLoc)) return true;
+
+      return false;
+    });
+
+    return matches;
   });
+
+  console.log('Filtered data count:', filteredData.length);
 
   if (filteredData.length === 0) {
     alert('No matching data found for selected queries.');
@@ -1479,6 +1553,9 @@ async function startBulkScraping(resumedTimestamp = null) {
 
             // Update total count
             history.searches[processingRecordIndex].count += result.data.length;
+
+            // Update the main bulk record's data with the current accumulated data
+            history.searches[processingRecordIndex].data = [...scrapedData];
           }
 
           // Save history after each query since we're updating the main bulk record
@@ -1645,6 +1722,9 @@ async function startBulkScraping(resumedTimestamp = null) {
 
             // Update total count
             history.searches[processingRecordIndex].count += result.data.length;
+
+            // Update the main bulk record's data with the current accumulated data
+            history.searches[processingRecordIndex].data = [...scrapedData];
           }
 
           // Save history after each query since we're updating the main bulk record
@@ -2138,13 +2218,14 @@ async function exportData() {
 
 async function sendToWebhook() {
   if (!scrapedData || scrapedData.length === 0) {
-    alert('No data to send to webhook');
+    showCustomAlert('No Data', 'No data to send to webhook');
     return;
   }
 
-  // Prompt user for webhook URL
-  const webhookUrl = prompt('Enter your webhook URL:', '');
-  if (!webhookUrl) {
+  // Get webhook URL from settings
+  const webhookUrl = localStorage.getItem('webhookUrl');
+  if (!webhookUrl || webhookUrl.trim() === '') {
+    showCustomAlert('Webhook Not Configured', 'Please configure a Webhook URL in Settings first.');
     return;
   }
 
@@ -2152,9 +2233,17 @@ async function sendToWebhook() {
   try {
     new URL(webhookUrl);
   } catch (e) {
-    alert('Invalid URL format');
+    showCustomAlert('Invalid URL', 'Invalid Webhook URL configured in Settings. Please check and update it.');
     return;
   }
+
+  // Disable the Send POST button and show loading state
+  const sendBtn = document.getElementById('sendToWebhookBtn');
+  const originalText = sendBtn.textContent;
+  sendBtn.disabled = true;
+  sendBtn.style.opacity = '0.5';
+  sendBtn.style.cursor = 'not-allowed';
+  sendBtn.textContent = 'Sending...';
 
   try {
     // Send the data to the webhook
@@ -2171,12 +2260,18 @@ async function sendToWebhook() {
     });
 
     if (response.ok) {
-      alert(`Data successfully sent to webhook!\n${scrapedData.length} records sent.`);
+      showCustomAlert('Success', `Successfully sent ${scrapedData.length} records to webhook!`);
     } else {
-      alert(`Webhook request failed with status: ${response.status}\n${response.statusText}`);
+      showCustomAlert('Request Failed', `Webhook request failed with status: ${response.status}`);
     }
   } catch (error) {
-    alert(`Error sending data to webhook: ${error.message}`);
+    showCustomAlert('Network Error', `Failed to send data to webhook:\n${error.message}`);
+  } finally {
+    // Re-enable the button
+    sendBtn.disabled = false;
+    sendBtn.style.opacity = '1';
+    sendBtn.style.cursor = 'pointer';
+    sendBtn.textContent = originalText;
   }
 }
 
@@ -2286,7 +2381,7 @@ function showCopiedNotification(parentId, message) {
   closeIcon.innerHTML = ' ×';
   closeIcon.style.marginLeft = '5px';
   closeIcon.style.fontWeight = 'bold';
-  closeIcon.onclick = function(event) {
+  closeIcon.onclick = function (event) {
     event.stopPropagation();
     if (notification.parentNode) {
       notification.parentNode.removeChild(notification);
@@ -2466,6 +2561,13 @@ async function initializeSettings() {
     fastModeParallelWarning.style.display = 'block';
   } else {
     fastModeParallelWarning.style.display = 'none';
+  }
+
+  // Initialize Webhook URL
+  const webhookUrl = localStorage.getItem('webhookUrl') || '';
+  const webhookUrlInput = document.getElementById('webhookUrl');
+  if (webhookUrlInput) {
+    webhookUrlInput.value = webhookUrl;
   }
 }
 
@@ -2783,8 +2885,8 @@ async function deleteSelectedRecords() {
 
           // Since the queries part might be truncated, match by the beginning
           if (key.startsWith(expectedResumeKey) ||
-              (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
-               record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
+            (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
+              record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
             keysToRemove.push(key);
             break; // Found a match, no need to check other records for this key
           }
@@ -2846,8 +2948,8 @@ async function deleteSelectedBulkRecords() {
 
           // Since the queries part might be truncated, match by the beginning
           if (key.startsWith(expectedResumeKey) ||
-              (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
-               record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
+            (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
+              record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
             keysToRemove.push(key);
             break; // Found a match, no need to check other records for this key
           }

@@ -1496,31 +1496,70 @@ button.support-link {
 
 /* Query Status Modal */
 .query-item {
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  transition: all var(--transition-normal);
+}
+
+.query-item:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-primary);
 }
 
 .query-item:last-child {
-  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .query-location {
   font-weight: 500;
   color: var(--text-primary);
+  flex: 1;
+}
+
+.query-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .query-status.status-scraped {
-  color: var(--success);
-  font-weight: 500;
+  background-color: var(--success);
+  color: white;
 }
 
 .query-status.status-continue {
-  color: var(--accent-warning);
-  font-weight: 500;
+  background-color: var(--danger);
+  color: white;
 }
 
 .queries-list {
-  margin-top: 10px;
+  margin-top: 0;
+}
+
+.query-checkbox {
+  margin: 0;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.query-checkbox-label {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  gap: 12px;
 }
 
 .resume-bulk {
@@ -2049,4 +2088,27 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
 .status-continue {
   background-color: var(--warning);
   color: white;
+}
+
+/* Scrollbar styling for query list */
+.queries-list {
+  overflow-y: auto;
+}
+
+.queries-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.queries-list::-webkit-scrollbar-track {
+  background: var(--bg-input);
+  border-radius: 4px;
+}
+
+.queries-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.queries-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }

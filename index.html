@@ -339,6 +339,15 @@
             </div>
           </div>
 
+          <div class="settings-group">
+            <h3>Integrations</h3>
+            <div class="form-group">
+              <label for="webhookUrl">Webhook URL</label>
+              <input type="text" id="webhookUrl" placeholder="https://your-webhook-url.com/endpoint">
+              <small>Enter the URL where scraped data will be sent via POST request.</small>
+            </div>
+          </div>
+
           <!-- Disclaimer Section -->
           <div class="settings-group"
             style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
@@ -394,7 +403,8 @@
           <div class="copy-option" id="copyTableOption">
             <button class="copy-option-btn" id="copyAsTableBtn">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM7 15h2v2H7v-2zm0-4h2v2H7v-2zm0-4h2v2H7V7zm8 8h-4v-2h4v2zm0-4h-4v-2h4v2zm0-4h-4V7h4v2z" />
+                <path
+                  d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM7 15h2v2H7v-2zm0-4h2v2H7v-2zm0-4h2v2H7V7zm8 8h-4v-2h4v2zm0-4h-4v-2h4v2zm0-4h-4V7h4v2z" />
               </svg>
               <div>
                 <strong>Copy as a Table</strong>
@@ -583,7 +593,8 @@
           </div>
           <!-- Fast Mode Bulk Progress -->
           <div id="fastBulkProgress" style="display: none;">
-            <p class="bulk-status">Completed Queries: <span id="fastCompletedQueries">0</span>/<span id="fastTotalQueries">0</span></p>
+            <p class="bulk-status">Completed Queries: <span id="fastCompletedQueries">0</span>/<span
+                id="fastTotalQueries">0</span></p>
           </div>
           <div class="progress-wrapper">
             <div class="progress-track">
@@ -625,7 +636,7 @@
             <div class="results-header">
               <h3 class="section-title">Live Results</h3>
               <span id="resultsCount">0</span>
-              <div id="resultsActions" class="results-actions" style="display: none;">
+              <div id="resultsActions" class="results-actions" style="display: none; gap: 8px;">
                 <button id="clearResultsBtn" class="btn-sm btn-danger-outline">Clear</button>
                 <button id="exportBtn" class="btn-sm">Export</button>
                 <button id="sendToWebhookBtn" class="btn-sm">Send POST</button>
@@ -699,7 +710,6 @@
           <div id="bulkSessionContainer" class="history-container">
             <p class="empty-text">No bulk sessions yet</p>
           </div>
-          <p class="bulk-session-note">Deleting bulk sessions won't delete records at scraping history</p>
         </div>
       </div>
     </main>
