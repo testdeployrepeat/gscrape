@@ -32,8 +32,7 @@ const searchPrepositionBulk = document.getElementById('searchPrepositionBulk');
 const customPrepositionBulk = document.getElementById('customPrepositionBulk');
 const extractEmailsCheckbox = document.getElementById('extractEmails');
 const extractEmailsBulkCheckbox = document.getElementById('extractEmailsBulk');
-const startBtn = document.getElementById('startBtn');
-const stopBtn = document.getElementById('stopBtn');
+const headerStartBtn = document.getElementById('headerStartBtn');
 const exportBtn = document.getElementById('exportBtn');
 const clearResultsBtn = document.getElementById('clearResultsBtn');
 
@@ -92,8 +91,13 @@ try {
 
 // Event Listeners
 bulkModeToggle.addEventListener('change', toggleBulkMode);
-startBtn.addEventListener('click', startScraping);
-stopBtn.addEventListener('click', stopScraping);
+document.getElementById('headerStartBtn').addEventListener('click', () => {
+  if (isScrapingActive) {
+    stopScraping();
+  } else {
+    startScraping();
+  }
+});
 exportBtn.addEventListener('click', exportData);
 document.getElementById('sendToWebhookBtn').addEventListener('click', sendToWebhook);
 document.getElementById('copyBtn').addEventListener('click', copyResults);
@@ -1075,10 +1079,9 @@ async function exportFilteredData(bulkRecord, selectedLocations) {
     filename
   });
 
-  if (result.success && !result.cancelled) {
-    alert(`Selected query data exported successfully to:\n${result.filePath}`);
-  } else if (!result.cancelled) {
-    alert(`Export failed: ${result.error}`);
+  // Silently handle success/failure - no popup
+  if (!result.success && !result.cancelled) {
+    console.error('Export failed:', result.error);
   }
 }
 
@@ -1192,17 +1195,16 @@ async function startSingleScraping() {
   }
   const query = `${niche} ${preposition} ${location}`;
 
-  if (isAlreadyScraped(query)) {
-    const proceed = confirm(
-      `You've already scraped "${query}" before.\n\nDo you want to scrape it again?`
-    );
-    if (!proceed) return;
-  }
-
-  // Show stop button, hide start
+  // Update header button to Stop
   isScrapingActive = true;
-  startBtn.style.display = 'none';
-  stopBtn.style.display = 'flex';
+  headerStartBtn.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+    </svg>
+    Stop
+  `;
+  headerStartBtn.classList.remove('btn-primary');
+  headerStartBtn.classList.add('btn-danger');
 
   // Show progress section
   progressSection.style.display = 'block';
@@ -1231,10 +1233,18 @@ async function startSingleScraping() {
   // Stop timer
   stopTimer();
 
-  // Reset buttons
+  // Reset header button to Start
   isScrapingActive = false;
-  startBtn.style.display = 'flex';
-  stopBtn.style.display = 'none';
+  headerStartBtn.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+    Start Scraping
+  `;
+  headerStartBtn.classList.remove('btn-danger');
+  headerStartBtn.classList.add('btn-primary');
+  headerStartBtn.disabled = false;
+  headerStartBtn.style.opacity = '1';
 
   if (result.stopped) {
     if (result.data && result.data.length > 0) {
@@ -1395,10 +1405,16 @@ async function startBulkScraping(resumedTimestamp = null) {
     };
   }
 
-  // Show stop button
+  // Update header button to Stop
   isScrapingActive = true;
-  startBtn.style.display = 'none';
-  stopBtn.style.display = 'flex';
+  headerStartBtn.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+    </svg>
+    Stop
+  `;
+  headerStartBtn.classList.remove('btn-primary');
+  headerStartBtn.classList.add('btn-danger');
 
   progressSection.style.display = 'block';
   progressSection.classList.add('visible');
@@ -1786,6 +1802,19 @@ async function startBulkScraping(resumedTimestamp = null) {
   // Stop timer
   stopTimer();
 
+  // Reset header button to Start
+  isScrapingActive = false;
+  headerStartBtn.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+    Start Scraping
+  `;
+  headerStartBtn.classList.remove('btn-danger');
+  headerStartBtn.classList.add('btn-primary');
+  headerStartBtn.disabled = false;
+  headerStartBtn.style.opacity = '1';
+
   const wasCancelled = !isScrapingActive;
   const currentIndex = parseInt(localStorage.getItem(resumeKey) || '0');
 
@@ -1793,11 +1822,6 @@ async function startBulkScraping(resumedTimestamp = null) {
   if (isScrapingActive) {
     localStorage.removeItem(resumeKey);
   }
-
-  // Reset buttons
-  isScrapingActive = false;
-  startBtn.style.display = 'flex';
-  stopBtn.style.display = 'none';
 
   progressFill.style.width = '100%';
 
@@ -1953,6 +1977,17 @@ async function stopScraping() {
 
   if (confirmed) {
     isScrapingActive = false;
+
+    // Update header button to show stopping state
+    headerStartBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+      </svg>
+      Stopping scraper...
+    `;
+    headerStartBtn.disabled = true;
+    headerStartBtn.style.opacity = '0.6';
+
     await window.electronAPI.stopScraping();
 
     // Update the progress text (same element is used for both fast and regular modes)
@@ -2024,9 +2059,6 @@ function showStopConfirmationModal() {
   });
 }
 
-function isAlreadyScraped(query) {
-  return history.searches.some(item => item.query.toLowerCase() === query.toLowerCase());
-}
 
 function updateProgress(progress) {
   const { status, message, current, total, data } = progress;
