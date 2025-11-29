@@ -95,6 +95,34 @@ bulkModeToggle.addEventListener('change', toggleBulkMode);
 startBtn.addEventListener('click', startScraping);
 stopBtn.addEventListener('click', stopScraping);
 exportBtn.addEventListener('click', exportData);
+document.getElementById('sendToWebhookBtn').addEventListener('click', sendToWebhook);
+document.getElementById('copyBtn').addEventListener('click', copyResults);
+document.getElementById('closeCopyOptionsBtn').addEventListener('click', () => {
+  document.getElementById('copyOptionsModal').classList.remove('show');
+  // Remove all copy notifications when modal is closed
+  const notifications = document.querySelectorAll('.copied-notification');
+  notifications.forEach(notification => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  });
+});
+
+// Close modal when clicking outside
+document.getElementById('copyOptionsModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('copyOptionsModal')) {
+    document.getElementById('copyOptionsModal').classList.remove('show');
+    // Remove all copy notifications when modal is closed
+    const notifications = document.querySelectorAll('.copied-notification');
+    notifications.forEach(notification => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    });
+  }
+});
+document.getElementById('copyAsTableBtn').addEventListener('click', () => copyAsTable());
+document.getElementById('copyAsJsonBtn').addEventListener('click', () => copyAsJson());
 clearResultsBtn.addEventListener('click', clearResults);
 combineAllBtn.addEventListener('click', combineAllHistory);
 
@@ -390,9 +418,29 @@ function toggleBulkMode() {
   if (isBulkMode) {
     singleMode.style.display = 'none';
     bulkMode.style.display = 'block';
+
+    // In bulk mode, show all speed options normally
+    const speedSelect = document.getElementById('speed');
+    const fastOption = speedSelect.querySelector('option[value="fast"]');
+    if (fastOption) {
+      fastOption.disabled = false;
+      fastOption.style.opacity = '1';
+    }
+
+    document.getElementById('fastModeSubtext').style.display = 'none';
   } else {
     singleMode.style.display = 'block';
     bulkMode.style.display = 'none';
+
+    // In single mode, grey out fast mode option and show subtext
+    const speedSelect = document.getElementById('speed');
+    const fastOption = speedSelect.querySelector('option[value="fast"]');
+    if (fastOption) {
+      fastOption.disabled = false; // Keep enabled but show it's for emails
+      fastOption.style.opacity = '0.6'; // Visually indicate it's different
+    }
+
+    document.getElementById('fastModeSubtext').style.display = 'block';
   }
 }
 
@@ -1364,10 +1412,22 @@ async function startBulkScraping(resumedTimestamp = null) {
           progressText.style.color = 'var(--warning)';
         }
 
-        // Update progress counter and bar
-        completedQueries++;
-        const progressPercent = (completedQueries / bulkQueries.length) * 100;
+        // Update progress counter and bar - calculate based on actual completed queries in fast mode
+        let actualCompletedCount = 0;
+        const processingRecordIndex = history.searches.findIndex(item =>
+          item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+        );
+
+        if (processingRecordIndex !== -1 && history.searches[processingRecordIndex].bulkData) {
+          actualCompletedCount = history.searches[processingRecordIndex].bulkData.completedQueries;
+        }
+
+        const progressPercent = (actualCompletedCount / bulkQueries.length) * 100;
         progressFill.style.width = `${progressPercent}%`;
+        if (progressPercent === 100 && progressPercent !== 0) {
+          progressText.textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
+          progressText.style.color = 'var(--success)';
+        }
 
         // Save progress
         localStorage.setItem(resumeKey, (queryIndex + 1).toString());
@@ -1952,6 +2012,186 @@ async function exportData() {
   } else if (!result.cancelled) {
     alert(`Export failed: ${result.error}`);
   }
+}
+
+async function sendToWebhook() {
+  if (!scrapedData || scrapedData.length === 0) {
+    alert('No data to send to webhook');
+    return;
+  }
+
+  // Prompt user for webhook URL
+  const webhookUrl = prompt('Enter your webhook URL:', '');
+  if (!webhookUrl) {
+    return;
+  }
+
+  // Basic URL validation
+  try {
+    new URL(webhookUrl);
+  } catch (e) {
+    alert('Invalid URL format');
+    return;
+  }
+
+  try {
+    // Send the data to the webhook
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        data: scrapedData,
+        timestamp: new Date().toISOString(),
+        count: scrapedData.length
+      })
+    });
+
+    if (response.ok) {
+      alert(`Data successfully sent to webhook!\n${scrapedData.length} records sent.`);
+    } else {
+      alert(`Webhook request failed with status: ${response.status}\n${response.statusText}`);
+    }
+  } catch (error) {
+    alert(`Error sending data to webhook: ${error.message}`);
+  }
+}
+
+async function copyResults() {
+  if (!scrapedData || scrapedData.length === 0) {
+    alert('No data to copy');
+    return;
+  }
+
+  // Show the copy options modal
+  document.getElementById('copyOptionsModal').classList.add('show');
+}
+
+// Function to copy data as a table (CSV format)
+async function copyAsTable() {
+  if (!scrapedData || scrapedData.length === 0) {
+    alert('No data to copy');
+    return;
+  }
+
+  try {
+    // Convert to CSV format for easy copying to spreadsheet
+    let csvContent = '';
+
+    if (scrapedData.length > 0) {
+      // Get headers from the first object
+      const headers = Object.keys(scrapedData[0]);
+      csvContent = headers.join(',') + '\n';
+
+      // Add each row of data
+      scrapedData.forEach(row => {
+        const values = headers.map(header => {
+          let value = row[header] || '';
+          // Escape commas and quotes for proper CSV format
+          value = String(value);
+          if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+            value = '"' + value.replace(/"/g, '""') + '"';
+          }
+          return value;
+        });
+        csvContent += values.join(',') + '\n';
+      });
+    }
+
+    // Copy to clipboard
+    await navigator.clipboard.writeText(csvContent);
+
+    // Show copied notification next to the Copy as Table button
+    showCopiedNotification('copyTableOption', 'Copied!');
+
+    // Close the modal after a short delay or let user close it
+    // (user will close it manually per requirements)
+  } catch (error) {
+    alert(`Error copying data to clipboard: ${error.message}`);
+  }
+}
+
+// Function to copy data as JSON
+async function copyAsJson() {
+  if (!scrapedData || scrapedData.length === 0) {
+    alert('No data to copy');
+    return;
+  }
+
+  try {
+    // Convert data to JSON string
+    const jsonString = JSON.stringify(scrapedData, null, 2);
+
+    // Copy to clipboard
+    await navigator.clipboard.writeText(jsonString);
+
+    // Show copied notification next to the Copy as JSON button
+    showCopiedNotification('copyJsonOption', 'Copied!');
+
+  } catch (error) {
+    alert(`Error copying data to clipboard: ${error.message}`);
+  }
+}
+
+// Function to show copied notification similar to the email copy notification
+function showCopiedNotification(parentId, message) {
+  // Remove any existing notifications for this specific parent
+  const existingNotification = document.querySelector(`.copied-notification[data-parent="${parentId}"]`);
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+
+  const parentElement = document.getElementById(parentId);
+  if (!parentElement) return;
+
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = 'copied-notification';
+  notification.setAttribute('data-parent', parentId);
+  notification.textContent = message;
+  notification.style.position = 'absolute';
+  notification.style.backgroundColor = 'var(--success, #10b981)';
+  notification.style.color = 'white';
+  notification.style.padding = '6px 12px';
+  notification.style.borderRadius = '4px';
+  notification.style.zIndex = '10000';
+  notification.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+  notification.style.opacity = '0';
+  notification.style.transform = 'translateY(10px)';
+  notification.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+  notification.style.fontSize = '12px';
+  notification.style.whiteSpace = 'nowrap';
+  notification.style.cursor = 'pointer';
+
+  // Add a small close button (X) to the notification
+  const closeIcon = document.createElement('span');
+  closeIcon.innerHTML = ' ×';
+  closeIcon.style.marginLeft = '5px';
+  closeIcon.style.fontWeight = 'bold';
+  closeIcon.onclick = function(event) {
+    event.stopPropagation();
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  };
+  notification.appendChild(closeIcon);
+
+  // Position the notification next to the parent element
+  const rect = parentElement.getBoundingClientRect();
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+  const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+  notification.style.top = (rect.top + scrollTop + rect.height / 2 - 12) + 'px'; // Center vertically
+  notification.style.left = (rect.right + scrollLeft + 10) + 'px'; // Position to the right of the element
+
+  document.body.appendChild(notification);
+
+  // Trigger animation
+  setTimeout(() => {
+    notification.style.opacity = '1';
+    notification.style.transform = 'translateY(0)';
+  }, 10);
 }
 
 async function combineAllHistory() {

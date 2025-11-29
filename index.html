@@ -310,7 +310,8 @@
                 </div>
               </label>
               <small>Adjust the number of queries to process simultaneously in fast mode.</small>
-              <div id="fastModeParallelWarning" class="warning-message" style="display: none; color: #f59e0b; margin-top: 5px; font-size: 13px;">
+              <div id="fastModeParallelWarning" class="warning-message"
+                style="display: none; color: #f59e0b; margin-top: 5px; font-size: 13px;">
                 ⚠️ Warning: Setting this too high may cause rate limiting or performance issues
               </div>
             </div>
@@ -372,6 +373,45 @@
                 </a>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Copy Options Modal -->
+    <div id="copyOptionsModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>📋 Copy Data</h2>
+          <button id="closeCopyOptionsBtn" class="btn-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="copy-option" id="copyTableOption">
+            <button class="copy-option-btn" id="copyAsTableBtn">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM7 15h2v2H7v-2zm0-4h2v2H7v-2zm0-4h2v2H7V7zm8 8h-4v-2h4v2zm0-4h-4v-2h4v2zm0-4h-4V7h4v2z" />
+              </svg>
+              <div>
+                <strong>Copy as a Table</strong>
+                <small>easily paste data to a spreadsheet</small>
+              </div>
+            </button>
+          </div>
+          <div class="copy-option" id="copyJsonOption">
+            <button class="copy-option-btn" id="copyAsJsonBtn">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h6v5h5v11z" />
+              </svg>
+              <div>
+                <strong>Copy as JSON</strong>
+                <small>Use data immediately for testing</small>
+              </div>
+            </button>
           </div>
         </div>
       </div>
@@ -509,6 +549,9 @@
                   <option value="normal">Normal</option>
                   <option value="fast">Fast</option>
                 </select>
+                <small id="fastModeSubtext"
+                  style="display: none; color: var(--text-secondary); margin-top: 4px; font-size: 12px; font-style: italic;">Attempts
+                  to scrape emails faster</small>
               </div>
 
               <div class="form-group">
@@ -580,6 +623,8 @@
               <div id="resultsActions" class="results-actions" style="display: none;">
                 <button id="clearResultsBtn" class="btn-sm btn-danger-outline">Clear</button>
                 <button id="exportBtn" class="btn-sm">Export</button>
+                <button id="sendToWebhookBtn" class="btn-sm">Send POST</button>
+                <button id="copyBtn" class="btn-sm">Copy</button>
               </div>
             </div>
 
