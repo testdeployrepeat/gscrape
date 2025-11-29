@@ -1995,3 +1995,58 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
   font-size: 13px;
   line-height: 1.4;
 }
+
+.bulk-session-note {
+  font-style: italic;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* Checkbox styles for query selection in bulk session modal */
+.query-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition);
+}
+
+.query-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.query-checkbox {
+  margin-right: 8px;
+}
+
+.query-checkbox-label {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  cursor: pointer;
+}
+
+.query-location {
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.query-status {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.status-scraped {
+  background-color: var(--success);
+  color: white;
+}
+
+.status-continue {
+  background-color: var(--warning);
+  color: white;
+}

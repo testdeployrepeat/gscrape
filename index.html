@@ -576,9 +576,14 @@
         <!-- Progress Section -->
         <div id="progressSection" class="card progress-card">
           <h3>Status</h3>
+          <!-- Regular Bulk Progress -->
           <div id="bulkProgress" style="display: none;">
             <p class="bulk-status">Query <span id="currentQuery">1</span>/<span id="totalQueries">1</span></p>
             <p class="current-search"><span id="currentSearchQuery"></span></p>
+          </div>
+          <!-- Fast Mode Bulk Progress -->
+          <div id="fastBulkProgress" style="display: none;">
+            <p class="bulk-status">Completed Queries: <span id="fastCompletedQueries">0</span>/<span id="fastTotalQueries">0</span></p>
           </div>
           <div class="progress-wrapper">
             <div class="progress-track">
@@ -694,6 +699,7 @@
           <div id="bulkSessionContainer" class="history-container">
             <p class="empty-text">No bulk sessions yet</p>
           </div>
+          <p class="bulk-session-note">Deleting bulk sessions won't delete records at scraping history</p>
         </div>
       </div>
     </main>

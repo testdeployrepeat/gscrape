@@ -789,13 +789,19 @@ function renderHistory() {
         // Use the detailed query status information
         const queryStatus = record.bulkData.queryStatus;
 
-        // Display queries in order with their status
+        // Display queries in order with their status and checkboxes
         for (let i = 0; i < Object.keys(queryStatus).length; i++) {
           if (queryStatus[i]) {
             const location = queryStatus[i].location;
             const status = queryStatus[i].status === 'completed' ? 'scraped' : 'to be continued';
             const statusClass = queryStatus[i].status === 'completed' ? 'status-scraped' : 'status-continue';
-            queryList += `<div class="query-item"><span class="query-location">${escapeHtml(location)}</span> - <span class="query-status ${statusClass}">${status}</span></div>`;
+            const checkboxId = `query-checkbox-${i}-${timestamp}`;
+            queryList += `<div class="query-item">
+                            <input type="checkbox" id="${checkboxId}" class="query-checkbox" data-location="${escapeHtml(location)}">
+                            <label for="${checkboxId}" class="query-checkbox-label">
+                              <span class="query-location">${escapeHtml(location)}</span> - <span class="query-status ${statusClass}">${status}</span>
+                            </label>
+                          </div>`;
           }
         }
       } else if (record.bulkData && record.bulkData.queries) {
@@ -806,7 +812,13 @@ function renderHistory() {
         allQueries.forEach((query, index) => {
           const status = index < completedCount ? 'scraped' : 'to be continued';
           const statusClass = index < completedCount ? 'status-scraped' : 'status-continue';
-          queryList += `<div class="query-item"><span class="query-location">${escapeHtml(query)}</span> - <span class="query-status ${statusClass}">${status}</span></div>`;
+          const checkboxId = `query-checkbox-${index}-${timestamp}`;
+          queryList += `<div class="query-item">
+                          <input type="checkbox" id="${checkboxId}" class="query-checkbox" data-location="${escapeHtml(query)}">
+                          <label for="${checkboxId}" class="query-checkbox-label">
+                            <span class="query-location">${escapeHtml(query)}</span> - <span class="query-status ${statusClass}">${status}</span>
+                          </label>
+                        </div>`;
         });
       } else if (record.bulkData && record.bulkData.remainingQueries) {
         // If we only have remaining queries
@@ -818,7 +830,13 @@ function renderHistory() {
         for (let i = 0; i < total; i++) {
           const status = i < completed ? 'scraped' : 'to be continued';
           const statusClass = i < completed ? 'status-scraped' : 'status-continue';
-          queryList += `<div class="query-item"><span class="query-location">Query ${i + 1}</span> - <span class="query-status ${statusClass}">${status}</span></div>`;
+          const checkboxId = `query-checkbox-${i}-${timestamp}`;
+          queryList += `<div class="query-item">
+                          <input type="checkbox" id="${checkboxId}" class="query-checkbox" data-location="Query ${i + 1}">
+                          <label for="${checkboxId}" class="query-checkbox-label">
+                            <span class="query-location">Query ${i + 1}</span> - <span class="query-status ${statusClass}">${status}</span>
+                          </label>
+                        </div>`;
         }
       } else {
         queryList += '<div class="query-item">No query info available</div>';
@@ -881,14 +899,63 @@ function showQueryStatusModal(title, content) {
         <div class="queries-list">
           ${content}
         </div>
+        <div style="margin-top: 15px; text-align: center;">
+          <button id="selectAllQueriesBtn" class="btn-sm" style="margin-right: 8px;">Select All</button>
+          <button id="exportSelectedQueriesBtn" class="btn-sm btn-primary">Export Selected</button>
+        </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-primary" onclick="this.closest('#queryStatusModal').remove()">Close</button>
+        <button class="btn-secondary" onclick="this.closest('#queryStatusModal').remove()">Close</button>
       </div>
     </div>
   `;
 
   document.body.appendChild(modal);
+
+  // Add event listeners for the new buttons
+  const selectAllBtn = modal.querySelector('#selectAllQueriesBtn');
+  const exportBtn = modal.querySelector('#exportSelectedQueriesBtn');
+  const checkboxes = modal.querySelectorAll('.query-checkbox');
+
+  selectAllBtn.addEventListener('click', () => {
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = true;
+    });
+  });
+
+  exportBtn.addEventListener('click', () => {
+    const selectedCheckboxes = modal.querySelectorAll('.query-checkbox:checked');
+    if (selectedCheckboxes.length === 0) {
+      alert('Please select at least one query to export.');
+      return;
+    }
+
+    // Get the original bulk record to access the full data
+    const bulkRecord = history.searches.find(s => s.query === title);
+    if (!bulkRecord || !bulkRecord.data || !Array.isArray(bulkRecord.data)) {
+      alert('No data available for export.');
+      return;
+    }
+
+    // Filter the bulk data based on selected queries
+    const selectedLocations = Array.from(selectedCheckboxes).map(cb => cb.dataset.location);
+    const filteredData = bulkRecord.data.filter(item => {
+      // Check if the item's search_location or search_query matches any selected location
+      const itemLocation = item.search_location || (item.search_query ? item.search_query.split(' ').slice(-1)[0] : '');
+      return selectedLocations.some(loc =>
+        itemLocation.includes(loc) ||
+        (item.search_query && item.search_query.includes(loc))
+      );
+    });
+
+    if (filteredData.length === 0) {
+      alert('No matching data found for selected queries.');
+      return;
+    }
+
+    // Export the data from the bulk record based on selected locations
+    exportFilteredData(bulkRecord, selectedLocations);
+  });
 
   // Close modal when clicking outside
   modal.addEventListener('click', (e) => {
@@ -896,6 +963,49 @@ function showQueryStatusModal(title, content) {
       modal.remove();
     }
   });
+}
+
+// Function to export filtered data from selected queries in bulk session
+async function exportFilteredData(bulkRecord, selectedLocations) {
+  if (!bulkRecord || !bulkRecord.data || !Array.isArray(bulkRecord.data) || !selectedLocations || selectedLocations.length === 0) {
+    alert('No data to export');
+    return;
+  }
+
+  // Filter the bulk data based on selected queries
+  const filteredData = bulkRecord.data.filter(item => {
+    // Check if the item's search_location or search_query matches any selected location
+    const itemSearchLocation = item.search_location || '';
+    const itemSearchQuery = item.search_query || '';
+
+    // Look for matches in either the search location or search query
+    return selectedLocations.some(loc =>
+      itemSearchLocation.includes(loc) ||
+      itemSearchQuery.includes(loc)
+    );
+  });
+
+  if (filteredData.length === 0) {
+    alert('No matching data found for selected queries.');
+    return;
+  }
+
+  // Create a meaningful filename using the bulk title and selected count
+  const bulkTitleClean = bulkRecord.query.replace(/[^a-z0-9]/gi, '-').toLowerCase().substring(0, 30);
+  const locationCount = selectedLocations.length;
+  const filename = `${bulkTitleClean}_selected_${locationCount}_queries.csv`;
+
+  const result = await window.electronAPI.exportData({
+    data: filteredData,
+    format: 'csv',
+    filename
+  });
+
+  if (result.success && !result.cancelled) {
+    alert(`Selected query data exported successfully to:\n${result.filePath}`);
+  } else if (!result.cancelled) {
+    alert(`Export failed: ${result.error}`);
+  }
 }
 
 // Show confirmation modal that returns a promise
@@ -1244,6 +1354,17 @@ async function startBulkScraping(resumedTimestamp = null) {
 
   // Check if running in fast mode for parallel processing
   if (selectedSpeed === 'fast' || selectedSpeed === 'ultra-fast') {
+    // Show fast mode content in the existing progress section
+    document.getElementById('bulkProgress').style.display = 'none';
+    document.getElementById('fastBulkProgress').style.display = 'block';
+
+    // Set up fast mode progress
+    document.getElementById('fastTotalQueries').textContent = bulkQueries.length;
+    document.getElementById('fastCompletedQueries').textContent = startIndex;
+    document.getElementById('progressText').textContent = 'Starting fast bulk scraping...';
+    document.getElementById('progressPercent').textContent = '0%';
+    document.getElementById('progressFill').style.width = '0%';
+
     // Parallel processing for fast mode: use user-defined number of queries at a time
     const defaultParallelLimit = 2;
     const savedParallelLimit = parseInt(localStorage.getItem('fastModeParallelScraping')) || defaultParallelLimit;
@@ -1360,19 +1481,10 @@ async function startBulkScraping(resumedTimestamp = null) {
             history.searches[processingRecordIndex].count += result.data.length;
           }
 
-          // Add to history immediately after each query
-          history.searches.push({
-            query,
-            count: result.data.length,
-            timestamp: new Date().toISOString(),
-            data: dataWithQuery // Save the actual data
-          });
-
-          // Save history after each query
+          // Save history after each query since we're updating the main bulk record
           await window.electronAPI.saveHistory(history);
 
-          // Update UI immediately
-          renderHistory();
+          // Update UI immediately - note: for bulk operations, results are already in the main bulk record
           renderResults(scrapedData);
           updateStats();
 
@@ -1412,7 +1524,7 @@ async function startBulkScraping(resumedTimestamp = null) {
           progressText.style.color = 'var(--warning)';
         }
 
-        // Update progress counter and bar - calculate based on actual completed queries in fast mode
+        // Update fast mode progress counter and bar - calculate based on actual completed queries
         let actualCompletedCount = 0;
         const processingRecordIndex = history.searches.findIndex(item =>
           item.timestamp === timestamp && item.status === 'processing' && item.isBulk
@@ -1422,11 +1534,21 @@ async function startBulkScraping(resumedTimestamp = null) {
           actualCompletedCount = history.searches[processingRecordIndex].bulkData.completedQueries;
         }
 
-        const progressPercent = (actualCompletedCount / bulkQueries.length) * 100;
-        progressFill.style.width = `${progressPercent}%`;
+        // Calculate progress percentage using the new logic: floor((completed/total) * 100)
+        const progressPercent = Math.floor((actualCompletedCount / bulkQueries.length) * 100);
+
+        // Update fast mode progress elements using the shared progress section
+        document.getElementById('fastCompletedQueries').textContent = actualCompletedCount;
+        document.getElementById('progressFill').style.width = `${progressPercent}%`;
+        document.getElementById('progressPercent').textContent = `${progressPercent}%`;
+
+        // Update the text to show current status
+        document.getElementById('progressText').textContent = `Query completed - ${actualCompletedCount}/${bulkQueries.length} done (${progressPercent}%)`;
+        document.getElementById('progressText').style.color = 'var(--success)';
+
         if (progressPercent === 100 && progressPercent !== 0) {
-          progressText.textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
-          progressText.style.color = 'var(--success)';
+          document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
+          document.getElementById('progressText').style.color = 'var(--success)';
         }
 
         // Save progress
@@ -1439,6 +1561,10 @@ async function startBulkScraping(resumedTimestamp = null) {
       }
     }
   } else {
+    // For normal mode, show regular progress and hide fast mode progress
+    document.getElementById('bulkProgress').style.display = 'block';
+    document.getElementById('fastBulkProgress').style.display = 'none';
+
     // Original sequential processing for normal mode
     for (let i = startIndex; i < bulkQueries.length; i++) {
       const queryStartTime = Date.now();
@@ -1521,19 +1647,10 @@ async function startBulkScraping(resumedTimestamp = null) {
             history.searches[processingRecordIndex].count += result.data.length;
           }
 
-          // Add to history immediately after each query
-          history.searches.push({
-            query,
-            count: result.data.length,
-            timestamp: new Date().toISOString(),
-            data: dataWithQuery // Save the actual data
-          });
-
-          // Save history after each query
+          // Save history after each query since we're updating the main bulk record
           await window.electronAPI.saveHistory(history);
 
-          // Update UI immediately
-          renderHistory();
+          // Update UI immediately - note: for bulk operations, results are already in the main bulk record
           renderResults(scrapedData);
           updateStats();
 
@@ -1742,6 +1859,10 @@ async function startBulkScraping(resumedTimestamp = null) {
   await window.electronAPI.saveHistory(history);
   renderHistory();
   updateStats();
+
+  // Show regular bulk progress (instead of fast mode) and reset to default view
+  document.getElementById('bulkProgress').style.display = 'block';
+  document.getElementById('fastBulkProgress').style.display = 'none';
 }
 
 async function stopScraping() {
@@ -1754,8 +1875,9 @@ async function stopScraping() {
     isScrapingActive = false;
     await window.electronAPI.stopScraping();
 
-    progressText.textContent = '⏸ Stopping scraper...';
-    progressText.style.color = 'var(--warning)';
+    // Update the progress text (same element is used for both fast and regular modes)
+    document.getElementById('progressText').textContent = '⏸ Stopping scraper...';
+    document.getElementById('progressText').style.color = 'var(--warning)';
   }
 }
 
@@ -2068,7 +2190,7 @@ async function copyResults() {
   document.getElementById('copyOptionsModal').classList.add('show');
 }
 
-// Function to copy data as a table (CSV format)
+// Function to copy data as a table (TSV format for Excel compatibility)
 async function copyAsTable() {
   if (!scrapedData || scrapedData.length === 0) {
     alert('No data to copy');
@@ -2076,37 +2198,32 @@ async function copyAsTable() {
   }
 
   try {
-    // Convert to CSV format for easy copying to spreadsheet
-    let csvContent = '';
+    // Convert to TSV (Tab-Separated Values) format for better Excel compatibility
+    let tsvContent = '';
 
     if (scrapedData.length > 0) {
       // Get headers from the first object
       const headers = Object.keys(scrapedData[0]);
-      csvContent = headers.join(',') + '\n';
+      tsvContent = headers.join('\t') + '\n';  // Use tab instead of comma
 
       // Add each row of data
       scrapedData.forEach(row => {
         const values = headers.map(header => {
           let value = row[header] || '';
-          // Escape commas and quotes for proper CSV format
-          value = String(value);
-          if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-            value = '"' + value.replace(/"/g, '""') + '"';
-          }
+          // Replace tabs and newlines to avoid breaking the TSV format
+          value = String(value).replace(/\t/g, ' ').replace(/\n/g, ' ').replace(/\r/g, ' ');
           return value;
         });
-        csvContent += values.join(',') + '\n';
+        tsvContent += values.join('\t') + '\n';  // Use tab instead of comma
       });
     }
 
     // Copy to clipboard
-    await navigator.clipboard.writeText(csvContent);
+    await navigator.clipboard.writeText(tsvContent);
 
     // Show copied notification next to the Copy as Table button
     showCopiedNotification('copyTableOption', 'Copied!');
 
-    // Close the modal after a short delay or let user close it
-    // (user will close it manually per requirements)
   } catch (error) {
     alert(`Error copying data to clipboard: ${error.message}`);
   }
@@ -2641,8 +2758,42 @@ async function exportSelectedRecords(mode) {
 async function deleteSelectedRecords() {
   const timestamps = Array.from(selectedHistoryItems);
 
+  // Find the records that will be deleted before filtering
+  const recordsToBeDeleted = [];
+  for (const timestamp of timestamps) {
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    if (record) {
+      recordsToBeDeleted.push(record);
+    }
+  }
+
   // Remove selected records from history
   history.searches = history.searches.filter(s => !selectedHistoryItems.has(s.timestamp));
+
+  // Also remove associated bulk resume keys from localStorage for deleted bulk records
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('bulk_resume_')) {
+      // Check if this key is related to any of the records being deleted
+      for (const record of recordsToBeDeleted) {
+        if (record.isBulk && record.bulkData && record.bulkData.niche && Array.isArray(record.bulkData.queries)) {
+          // Reconstruct the expected resume key based on the record's niche and queries
+          const expectedResumeKey = `bulk_resume_${record.bulkData.niche}_${record.bulkData.queries.join('_').substring(0, 50)}`;
+
+          // Since the queries part might be truncated, match by the beginning
+          if (key.startsWith(expectedResumeKey) ||
+              (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
+               record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
+            keysToRemove.push(key);
+            break; // Found a match, no need to check other records for this key
+          }
+        }
+      }
+    }
+  }
+
+  keysToRemove.forEach(key => localStorage.removeItem(key));
 
   // Save updated history
   await window.electronAPI.saveHistory(history);
@@ -2670,8 +2821,42 @@ async function deleteSelectedBulkRecords() {
     return;
   }
 
+  // Find the records that will be deleted before filtering
+  const recordsToBeDeleted = [];
+  for (const timestamp of selectedBulkItems) {
+    const record = history.searches.find(s => s.timestamp === timestamp && s.isBulk);
+    if (record) {
+      recordsToBeDeleted.push(record);
+    }
+  }
+
   // Remove only selected bulk session records from history
   history.searches = history.searches.filter(s => !selectedBulkItems.includes(s.timestamp));
+
+  // Also remove associated bulk resume keys from localStorage
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('bulk_resume_')) {
+      // Check if this key is related to any of the records being deleted
+      for (const record of recordsToBeDeleted) {
+        if (record.bulkData && record.bulkData.niche && Array.isArray(record.bulkData.queries)) {
+          // Reconstruct the expected resume key based on the record's niche and queries
+          const expectedResumeKey = `bulk_resume_${record.bulkData.niche}_${record.bulkData.queries.join('_').substring(0, 50)}`;
+
+          // Since the queries part might be truncated, match by the beginning
+          if (key.startsWith(expectedResumeKey) ||
+              (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
+               record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
+            keysToRemove.push(key);
+            break; // Found a match, no need to check other records for this key
+          }
+        }
+      }
+    }
+  }
+
+  keysToRemove.forEach(key => localStorage.removeItem(key));
 
   // Save updated history
   await window.electronAPI.saveHistory(history);
