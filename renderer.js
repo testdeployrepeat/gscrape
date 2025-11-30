@@ -4,8 +4,6 @@ let bulkQueries = [];
 let isBulkMode = false;
 let isScrapingActive = false;
 let currentBulkOperation = null; // Track current bulk operation
-let map;
-let marker;
 let startTime = null;
 let timerInterval = null;
 
@@ -50,11 +48,13 @@ const resultsActions = document.getElementById('resultsActions');
 const resultsCount = document.getElementById('resultsCount');
 const historyContainer = document.getElementById('historyContainer');
 const bulkSessionContainer = document.getElementById('bulkSessionContainer');
-const combineAllBtn = document.getElementById('combineAllBtn');
+
 const selectAllLink = document.getElementById('selectAllLink');
 const exportSelectedBtn = document.getElementById('exportSelectedBtn');
+const bulkExportSelectedBtn = document.getElementById('bulkExportSelectedBtn');
 const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
 const bulkDeleteSelectedBtn = document.getElementById('bulkDeleteSelectedBtn');
+const bulkSelectAllLink = document.getElementById('bulkSelectAllLink');
 
 // Settings Elements
 const headlessModeCheckbox = document.getElementById('headlessMode');
@@ -112,7 +112,7 @@ document.getElementById('closeCopyOptionsBtn').addEventListener('click', () => {
   });
 });
 
-// Close modal when clicking outside
+// Close modal when clicking outside (this was duplicated, now cleaned)
 document.getElementById('copyOptionsModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('copyOptionsModal')) {
     document.getElementById('copyOptionsModal').classList.remove('show');
@@ -128,14 +128,22 @@ document.getElementById('copyOptionsModal').addEventListener('click', (e) => {
 document.getElementById('copyAsTableBtn').addEventListener('click', () => copyAsTable());
 document.getElementById('copyAsJsonBtn').addEventListener('click', () => copyAsJson());
 clearResultsBtn.addEventListener('click', clearResults);
-combineAllBtn.addEventListener('click', combineAllHistory);
+
 
 // Selection Event Listeners
 selectAllLink.addEventListener('click', (e) => {
   e.preventDefault();
   toggleSelectAll();
 });
+
+bulkSelectAllLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  toggleSelectAllBulk();
+});
 exportSelectedBtn.addEventListener('click', () => {
+  document.getElementById('exportOptionsModal').classList.add('show');
+});
+bulkExportSelectedBtn.addEventListener('click', () => {
   document.getElementById('exportOptionsModal').classList.add('show');
 });
 deleteSelectedBtn.addEventListener('click', () => {
@@ -366,12 +374,32 @@ document.getElementById('closeExportOptionsBtn').addEventListener('click', () =>
 
 document.getElementById('exportSingleCsvBtn').addEventListener('click', () => {
   document.getElementById('exportOptionsModal').classList.remove('show');
-  exportSelectedRecords('single');
+
+  // Check if there's a currentExportRecord (individual record export)
+  if (window.currentExportRecord) {
+    // This is an individual bulk record export - treat as single CSV for that record
+    exportSingleBulkRecord(window.currentExportRecord, 'single');
+    // Clear the temporary record
+    delete window.currentExportRecord;
+  } else {
+    // This is for selected records via checkboxes - export all selected records
+    exportSelectedRecords('single');
+  }
 });
 
 document.getElementById('exportSeparateCsvBtn').addEventListener('click', () => {
   document.getElementById('exportOptionsModal').classList.remove('show');
-  exportSelectedRecords('separate');
+
+  // Check if there's a currentExportRecord (individual record export)
+  if (window.currentExportRecord) {
+    // This is an individual bulk record export - treat as separate CSVs for that record
+    exportSingleBulkRecord(window.currentExportRecord, 'separate');
+    // Clear the temporary record
+    delete window.currentExportRecord;
+  } else {
+    // This is for selected records via checkboxes - export all selected records separately
+    exportSelectedRecords('separate');
+  }
 });
 
 // Delete Confirmation Modal Event Listeners
@@ -539,6 +567,9 @@ async function loadHistory() {
 }
 
 function renderHistory() {
+  // Clear selected items when refreshing history to prevent stale selections
+  selectedHistoryItems.clear();
+
   if (!history.searches || history.searches.length === 0) {
     historyContainer.innerHTML = '<p class="empty-text">No history yet</p>';
     bulkSessionContainer.innerHTML = '<p class="empty-text">No bulk sessions yet</p>';
@@ -557,13 +588,19 @@ function renderHistory() {
   if (regularHistory.length === 0) {
     historyContainer.innerHTML = '<p class="empty-text">No history yet</p>';
   } else {
-    // Show combine all button
-    combineAllBtn.style.display = 'flex';
-
     // Show selection controls
     selectAllLink.style.display = 'inline';
     selectAllLink.textContent = 'Select All';
     updateSelectionUI();
+
+    // Update combineAllBtn based on whether any items are selected
+    const regularSelectedCount = Array.from(selectedHistoryItems).filter(timestamp => {
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      return record && !record.isBulk; // Only count regular history items
+    }).length;
+
+    // Show combineAllBtn only when regular history items are selected
+
 
     historyContainer.innerHTML = regularHistory
       .slice(-10)
@@ -586,6 +623,11 @@ function renderHistory() {
                 <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
               </svg>
             </button>
+            <button class="btn-icon delete-history" title="Delete this record" data-timestamp="${item.timestamp}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+              </svg>
+            </button>
           </div>
         </div>
       `;
@@ -596,6 +638,7 @@ function renderHistory() {
   // Show bulk sessions
   if (bulkSessions.length === 0) {
     bulkSessionContainer.innerHTML = '<p class="empty-text">No bulk sessions yet</p>';
+    bulkSelectAllLink.style.display = 'none';
   } else {
     bulkSessionContainer.innerHTML = bulkSessions
       .slice(-10)
@@ -622,7 +665,7 @@ function renderHistory() {
         <div class="history-item has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
           <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
           <div class="history-content">
-            <div class="history-query">${escapeHtml(item.query)} ${statusLabel}</div>
+            <div class="history-query">${item.isBulk ? escapeHtml(item.query.replace(/^Bulk: /, '')) : escapeHtml(item.query)} ${statusLabel}</div>
             <div class="history-meta">
               ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
             </div>
@@ -645,6 +688,10 @@ function renderHistory() {
       `;
       })
       .join('');
+
+    // Show bulk selection controls
+    bulkSelectAllLink.style.display = 'inline';
+    bulkSelectAllLink.textContent = 'Select All'; // Default to 'Select All'
   }
 
   // Add checkbox change handlers for all history items (regular and bulk sessions)
@@ -659,10 +706,58 @@ function renderHistory() {
       }
       updateSelectionUI();
 
-      // Update select all checkbox
+      // Update regular history select all link text based only on regular history items
       const allCheckboxes = document.querySelectorAll('.history-checkbox');
-      const allChecked = Array.from(allCheckboxes).every(c => c.checked);
-      // selectAllHistory.checked = allChecked; // Removed as selectAllHistory is not defined
+      const regularCheckboxes = Array.from(allCheckboxes).filter(cb => {
+        const record = history.searches.find(s => s.timestamp === cb.dataset.timestamp);
+        return record && !record.isBulk; // Only regular history items, not bulk
+      });
+      const regularAllChecked = regularCheckboxes.length > 0 && regularCheckboxes.every(cb => cb.checked);
+      selectAllLink.textContent = regularAllChecked ? 'Deselect All' : 'Select All';
+
+      // Update bulk sessions select all link text based only on bulk session items
+      const bulkCheckboxes = Array.from(allCheckboxes).filter(cb => {
+        const record = history.searches.find(s => s.timestamp === cb.dataset.timestamp);
+        return record && record.isBulk; // Only bulk session items
+      });
+      const bulkAllChecked = bulkCheckboxes.length > 0 && bulkCheckboxes.every(cb => cb.checked);
+      bulkSelectAllLink.textContent = bulkAllChecked ? 'Deselect All' : 'Select All';
+    });
+  });
+
+  // Add click handlers for export history buttons (distinguishing bulk session vs regular history exports)
+  document.querySelectorAll('.export-history').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent the click from bubbling to the item click handler
+      const historyItem = e.target.closest('.history-item');
+      const query = historyItem.dataset.query;
+      const timestamp = historyItem.dataset.timestamp;
+
+      // Find the matching history record
+      const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
+      if (!record || !record.data) return;
+
+      // Check the number of selected items to determine export behavior
+      const selectedCount = selectedHistoryItems.size;
+
+      // If this is a bulk session record, always show the export options modal
+      if (record.isBulk) {
+        // Store the record for export when user chooses an option
+        window.currentExportRecord = record;
+        // Show export options modal for bulk records
+        document.getElementById('exportOptionsModal').classList.add('show');
+      } else {
+        // For regular history records:
+        // - Show options modal if 2 or more records are selected
+        // - Export directly if only this one is selected (or none)
+        if (selectedCount >= 2) {
+          // Multiple records selected, show options modal
+          document.getElementById('exportOptionsModal').classList.add('show');
+        } else {
+          // Only one record (or none) selected, export directly
+          exportSingleRecord(record);
+        }
+      }
     });
   });
 
@@ -682,6 +777,9 @@ function renderHistory() {
       // Display the results
       scrapedData = record.data;
       renderResults(record.data);
+
+      // Update stats to show data from the selected record
+      updateStats(record.data);
 
       // Scroll to results section
       document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
@@ -750,35 +848,6 @@ function renderHistory() {
 
         // Start scraping with resume info to avoid creating a new record
         await startBulkScraping(timestamp); // Pass the timestamp of the resumed record
-      }
-    });
-  });
-
-  // Add click handlers for history item exports
-  document.querySelectorAll('.export-history').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const historyItem = e.target.closest('.history-item');
-      const query = historyItem.dataset.query;
-      const timestamp = historyItem.dataset.timestamp;
-
-      // Find the matching history record
-      const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
-      if (!record) return;
-
-      const format = exportFormatSelect.value;
-      const filename = `google-maps-history-${new Date(timestamp).toISOString().slice(0, 10)}.${format}`;
-
-      const result = await window.electronAPI.exportData({
-        data: record.data || [],
-        format,
-        filename
-      });
-
-      if (result.success && !result.cancelled) {
-        showCustomAlert('Export Successful', `History data exported to:\n${result.filePath}`);
-      } else if (!result.cancelled) {
-        showCustomAlert('Export Failed', result.error);
       }
     });
   });
@@ -2075,7 +2144,7 @@ function updateProgress(progress) {
   if (data && data.length > 0) {
     scrapedData = data;
     renderResults(data);
-    updateStats();
+    updateStats(data);  // Show stats for live results
   }
 
   // Update progress bar
@@ -2130,11 +2199,8 @@ function clearResults() {
   resultsContainer.innerHTML = '<div class="empty-state"><p>No results yet</p></div>';
   resultsActions.style.display = 'none';
 
-  // Reset stats
-  document.getElementById('totalCompanies').textContent = '0';
-  document.getElementById('totalWebsites').textContent = '0';
-  document.getElementById('totalPhones').textContent = '0';
-  document.getElementById('totalEmails').textContent = '0';
+  // Reset stats to show overall totals
+  updateStats();
 
   // Reset progress
   progressText.textContent = 'Ready to scrape';
@@ -2438,41 +2504,7 @@ function showCopiedNotification(parentId, message) {
   }, 10);
 }
 
-async function combineAllHistory() {
-  if (!history.searches || history.searches.length === 0) {
-    alert('No history data to export');
-    return;
-  }
 
-  // Combine all history data
-  const combinedData = [];
-  history.searches.forEach(search => {
-    if (search.data && Array.isArray(search.data)) {
-      combinedData.push(...search.data);
-    }
-  });
-
-  if (combinedData.length === 0) {
-    alert('No data found in history to export');
-    return;
-  }
-
-  const format = exportFormatSelect.value;
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-  const filename = `google-maps-combined-history-${timestamp}.${format}`;
-
-  const result = await window.electronAPI.exportData({
-    data: combinedData,
-    format,
-    filename
-  });
-
-  if (result.success && !result.cancelled) {
-    alert(`Combined history data exported successfully!\\n\\nTotal records: ${combinedData.length}\\nFile: ${result.filePath}`);
-  } else if (!result.cancelled) {
-    alert(`Export failed: ${result.error}`);
-  }
-}
 
 async function clearHistory() {
   try {
@@ -2603,7 +2635,7 @@ async function initializeSettings() {
   }
 }
 
-function updateStats() {
+function updateStats(dataToShow = null) {
   const statsSection = document.querySelector('.stats-section');
   if (!statsSection) return;
 
@@ -2613,19 +2645,28 @@ function updateStats() {
   let totalEmails = 0;
   let lastUpdate = '-';
 
-  if (history.searches && history.searches.length > 0) {
-    history.searches.forEach(search => {
-      if (search.data) {
-        totalCompanies += search.data.length;
-        totalWebsites += search.data.filter(item => item.website).length;
-        totalPhones += search.data.filter(item => item.phone).length;
-        totalEmails += search.data.filter(item => item.email).length;
-      }
-    });
+  // If specific data is provided (e.g. from selected history record), use that
+  if (dataToShow && Array.isArray(dataToShow)) {
+    totalCompanies = dataToShow.length;
+    totalWebsites = dataToShow.filter(item => item.website).length;
+    totalPhones = dataToShow.filter(item => item.phone).length;
+    totalEmails = dataToShow.filter(item => item.email).length;
+  } else {
+    // Otherwise, calculate totals from all history for general stats
+    if (history.searches && history.searches.length > 0) {
+      history.searches.forEach(search => {
+        if (search.data) {
+          totalCompanies += search.data.length;
+          totalWebsites += search.data.filter(item => item.website).length;
+          totalPhones += search.data.filter(item => item.phone).length;
+          totalEmails += search.data.filter(item => item.email).length;
+        }
+      });
 
-    // Get the most recent timestamp
-    const lastTimestamp = Math.max(...history.searches.map(s => new Date(s.timestamp)));
-    lastUpdate = new Date(lastTimestamp).toLocaleDateString();
+      // Get the most recent timestamp
+      const lastTimestamp = Math.max(...history.searches.map(s => new Date(s.timestamp)));
+      lastUpdate = new Date(lastTimestamp).toLocaleDateString();
+    }
   }
 
   document.getElementById('totalCompanies').textContent = totalCompanies.toLocaleString();
@@ -2653,13 +2694,15 @@ function truncate(str, length) {
 // Map Initialization and Functions
 function initializeMap() {
   // Initialize the map centered on a default location (New York)
-  map = L.map('map-container').setView([40.7128, -74.0060], 13);
+  const map = L.map('map-container').setView([40.7128, -74.0060], 13);
 
   // Add OpenStreetMap tiles (free and no authentication required)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19
   }).addTo(map);
+
+  let marker; // Local marker variable
 
   // Add click event to set location
   map.on('click', function (e) {
@@ -2796,19 +2839,26 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 // Selection Functions
 function toggleSelectAll() {
-  const checkboxes = document.querySelectorAll('.history-checkbox');
-  const allSelected = selectedHistoryItems.size === checkboxes.length && checkboxes.length > 0;
+  const allCheckboxes = document.querySelectorAll('.history-checkbox');
+  const regularCheckboxes = Array.from(allCheckboxes).filter(cb => {
+    const timestamp = cb.dataset.timestamp;
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && !record.isBulk; // Only regular history items, not bulk sessions
+  });
 
-  if (allSelected) {
-    // Deselect all
-    checkboxes.forEach(cb => {
+  // Determine if all regular items are currently selected
+  const allRegularSelected = regularCheckboxes.length > 0 && regularCheckboxes.every(cb => cb.checked);
+
+  if (allRegularSelected) {
+    // Deselect all regular items
+    regularCheckboxes.forEach(cb => {
       cb.checked = false;
+      selectedHistoryItems.delete(cb.dataset.timestamp);
     });
-    selectedHistoryItems.clear();
     selectAllLink.textContent = 'Select All';
   } else {
-    // Select all
-    checkboxes.forEach(cb => {
+    // Select all regular items
+    regularCheckboxes.forEach(cb => {
       cb.checked = true;
       selectedHistoryItems.add(cb.dataset.timestamp);
     });
@@ -2817,16 +2867,154 @@ function toggleSelectAll() {
   updateSelectionUI();
 }
 
-function updateSelectionUI() {
-  const count = selectedHistoryItems.size;
-  if (count > 0) {
-    exportSelectedBtn.style.display = 'flex';
-    deleteSelectedBtn.style.display = 'flex';
-    combineAllBtn.style.display = 'none';
+// Toggle select all for bulk sessions only
+function toggleSelectAllBulk() {
+  const allCheckboxes = document.querySelectorAll('.history-checkbox');
+  const bulkCheckboxes = Array.from(allCheckboxes).filter(cb => {
+    const timestamp = cb.dataset.timestamp;
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && record.isBulk;
+  });
+
+  // Determine if all visible bulk items are currently selected
+  const allBulkSelected = bulkCheckboxes.length > 0 && bulkCheckboxes.every(cb => cb.checked);
+
+  if (allBulkSelected) {
+    // Deselect all bulk items
+    bulkCheckboxes.forEach(cb => {
+      cb.checked = false;
+      selectedHistoryItems.delete(cb.dataset.timestamp);
+    });
+    bulkSelectAllLink.textContent = 'Select All';
   } else {
+    // Select all bulk items
+    bulkCheckboxes.forEach(cb => {
+      cb.checked = true;
+      selectedHistoryItems.add(cb.dataset.timestamp);
+    });
+    bulkSelectAllLink.textContent = 'Deselect All';
+  }
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  const allSelectedCount = selectedHistoryItems.size;
+  const bulkSelectedCount = Array.from(selectedHistoryItems).filter(timestamp => {
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && record.isBulk;
+  }).length;
+  const regularSelectedCount = allSelectedCount - bulkSelectedCount;
+
+  if (allSelectedCount > 0) {
+    // Show export/delete buttons when there are selections
+    exportSelectedBtn.style.display = regularSelectedCount > 0 ? 'flex' : 'none';
+    deleteSelectedBtn.style.display = regularSelectedCount > 0 ? 'flex' : 'none';
+    bulkExportSelectedBtn.style.display = bulkSelectedCount > 0 ? 'flex' : 'none';
+    bulkDeleteSelectedBtn.style.display = bulkSelectedCount > 0 ? 'flex' : 'none';
+    // Show combineAllBtn only when regular history items are selected
+
+  } else {
+    // Hide all selected buttons when nothing is selected
     exportSelectedBtn.style.display = 'none';
     deleteSelectedBtn.style.display = 'none';
-    combineAllBtn.style.display = history.searches && history.searches.length > 0 ? 'flex' : 'none';
+    bulkExportSelectedBtn.style.display = 'none';
+    bulkDeleteSelectedBtn.style.display = 'none';
+
+  }
+}
+
+// Export function for a single bulk record
+async function exportSingleBulkRecord(record, mode) {
+  if (!record || !record.data || record.data.length === 0) {
+    showCustomAlert('No Data', 'No data available to export for this record.');
+    return;
+  }
+
+  if (mode === 'single') {
+    // Export all data from the bulk record as a single file
+    const format = exportFormatSelect.value; // Get selected format from settings
+    const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    const filename = `${cleanQuery}.${format}`;
+
+    const result = await window.electronAPI.exportData({
+      data: record.data,
+      format,
+      filename
+    });
+
+    if (result.success && !result.cancelled) {
+      showCustomAlert('Export Successful', `Data exported to:\n${result.filePath}`);
+    } else if (!result.cancelled) {
+      showCustomAlert('Export Failed', result.error);
+    }
+  } else if (mode === 'separate') {
+    // Export bulk data as separate files (this would typically be per-query in the bulk session)
+    const folderResult = await window.electronAPI.selectFolder();
+
+    if (folderResult.cancelled) return;
+
+    let successCount = 0;
+    // If bulkData exists with query-specific data, export each query separately
+    if (record.bulkData && record.bulkData.queryStatus) {
+      // Export based on query status
+      for (let i = 0; i < Object.keys(record.bulkData.queryStatus).length; i++) {
+        if (record.bulkData.queryStatus[i] && record.bulkData.queryStatus[i].status === 'completed') {
+          const queryData = record.data.filter(item => item.search_location === record.bulkData.queryStatus[i].location);
+          if (queryData.length > 0) {
+            const cleanLocation = record.bulkData.queryStatus[i].location.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+            const filename = `${record.bulkData.niche}-${cleanLocation}.csv`;
+
+            const result = await window.electronAPI.exportDataToFolder({
+              data: queryData,
+              format: 'csv',
+              filename,
+              folderPath: folderResult.filePath
+            });
+
+            if (result.success) successCount++;
+          }
+        }
+      }
+    } else if (record.bulkData && record.bulkData.niche) {
+      // If we have bulk data but not by query, just export all as one file with different naming
+      const cleanNiche = record.bulkData.niche.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const filename = `${cleanNiche}-all-queries.csv`;
+
+      const result = await window.electronAPI.exportDataToFolder({
+        data: record.data,
+        format: 'csv',
+        filename,
+        folderPath: folderResult.filePath
+      });
+
+      if (result.success) successCount = 1;
+    }
+
+    showCustomAlert('Export Complete', `Successfully exported ${successCount} file(s) to:\n${folderResult.filePath}`);
+  }
+}
+
+// Export function for a single record
+async function exportSingleRecord(record) {
+  if (!record || !record.data || record.data.length === 0) {
+    showCustomAlert('No Data', 'No data available to export for this record.');
+    return;
+  }
+
+  const format = exportFormatSelect.value; // Get selected format from settings
+  const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+  const filename = `${cleanQuery}.${format}`;
+
+  const result = await window.electronAPI.exportData({
+    data: record.data,
+    format,
+    filename
+  });
+
+  if (result.success && !result.cancelled) {
+    showCustomAlert('Export Successful', `Data exported to:\n${result.filePath}`);
+  } else if (!result.cancelled) {
+    showCustomAlert('Export Failed', result.error);
   }
 }
 

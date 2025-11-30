@@ -222,25 +222,45 @@ async function scrapeGoogleMaps(options, progressCallback) {
         timeout: 10000
       });
     } catch (e) {
-      // If the main selectors aren't found, try navigating again with a slightly different method
-      await page.goto(`https://www.google.com/maps`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
+      // Check if there might be a consent banner by looking for consent-related elements
+      const hasConsentBanner = await page.evaluate(() => {
+        // Check for common consent banner elements (case-insensitive without using unsupported flags)
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const hasConsentButton = buttons.some(button => {
+          const label = button.getAttribute('aria-label') || '';
+          return label.toLowerCase().includes('accept') ||
+                 label.toLowerCase().includes('agree') ||
+                 label.toLowerCase().includes('consent');
+        });
+
+        // Check for modal dialog which is often used for consent
+        const hasModal = document.querySelector('div[aria-modal="true"]') !== null ||
+                        document.querySelector('div[role="dialog"]') !== null;
+
+        return hasConsentButton || hasModal;
       });
 
-      // Wait for search box to be available
-      await page.waitForSelector('#searchboxinput', { timeout: 10000 });
+      // Only handle consent if we detect consent-related elements
+      if (hasConsentBanner) {
+        await handleConsent(page);
 
-      // Fill and submit search
-      await page.type('#searchboxinput', searchQuery);
-      await page.keyboard.press('Enter');
+        // After handling consent, try again to find the selectors
+        try {
+          await page.waitForSelector('div[role="feed"], div[aria-label^="Results for"], #searchbox', {
+            timeout: 10000
+          });
+        } catch (e2) {
+          // If selectors still can't be found after consent handling, throw a helpful error
+          throw new Error('Unable to find search results. If you\'re scraping from EU, please use a VPN or non-EU proxy.');
+        }
+      } else {
+        // If no consent banner detected, throw the error directly
+        throw new Error('Unable to find search results. If you\'re scraping from EU, please use a VPN or non-EU proxy.');
+      }
     }
 
     // Wait a bit more for results to populate
     await wait(2000);
-
-    // NEW: Handle consent screen
-    await handleConsent(page);
 
     // Additional wait after consent for results to fully load
     await wait(1500);
@@ -358,7 +378,6 @@ async function scrapeGoogleMaps(options, progressCallback) {
 
           if (data.name.trim()) {
             resultsArray.push(data);
-            // uniqueBusinesses.set(uniqueKey, true); // This line was commented out or removed, ensure it's not re-added if not intended.
           }
         } catch (e) {
           console.error('Error parsing a business card:', e);

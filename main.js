@@ -203,6 +203,32 @@ ipcMain.handle('toggle-devtools', async () => {
     return { success: true };
 });
 
+// Helper function to generate file content based on format
+function generateFileContent(data, format) {
+    if (format === 'json') {
+        return JSON.stringify(data, null, 2);
+    } else if (format === 'csv') {
+        if (data.length === 0) {
+            return '';
+        } else {
+            const headers = Object.keys(data[0]);
+            const csvRows = [headers.join(',')];
+
+            for (const row of data) {
+                const values = headers.map(header => {
+                    const value = row[header] || '';
+                    const escaped = ('' + value).replace(/"/g, '""');
+                    return `"${escaped}"`;
+                });
+                csvRows.push(values.join(','));
+            }
+
+            return csvRows.join('\n');
+        }
+    }
+    return '';
+}
+
 ipcMain.handle('export-data', async (event, { data, format, filename }) => {
     try {
         // Show save dialog
@@ -216,28 +242,7 @@ ipcMain.handle('export-data', async (event, { data, format, filename }) => {
         if (!result.filePath) return { success: false, cancelled: true };
         let filePath = result.filePath;
 
-        let content;
-        if (format === 'json') {
-            content = JSON.stringify(data, null, 2);
-        } else if (format === 'csv') {
-            if (data.length === 0) {
-                content = '';
-            } else {
-                const headers = Object.keys(data[0]);
-                const csvRows = [headers.join(',')];
-
-                for (const row of data) {
-                    const values = headers.map(header => {
-                        const value = row[header] || '';
-                        const escaped = ('' + value).replace(/"/g, '""');
-                        return `"${escaped}"`;
-                    });
-                    csvRows.push(values.join(','));
-                }
-
-                content = csvRows.join('\n');
-            }
-        }
+        const content = generateFileContent(data, format);
 
         await fs.writeFile(filePath, content, 'utf8');
         return { success: true, filePath };
@@ -267,28 +272,7 @@ ipcMain.handle('export-data-to-folder', async (event, { data, format, filename, 
     try {
         const filePath = path.join(folderPath, filename);
 
-        let content;
-        if (format === 'json') {
-            content = JSON.stringify(data, null, 2);
-        } else if (format === 'csv') {
-            if (data.length === 0) {
-                content = '';
-            } else {
-                const headers = Object.keys(data[0]);
-                const csvRows = [headers.join(',')];
-
-                for (const row of data) {
-                    const values = headers.map(header => {
-                        const value = row[header] || '';
-                        const escaped = ('' + value).replace(/"/g, '""');
-                        return `"${escaped}"`;
-                    });
-                    csvRows.push(values.join(','));
-                }
-
-                content = csvRows.join('\n');
-            }
-        }
+        const content = generateFileContent(data, format);
 
         await fs.writeFile(filePath, content, 'utf8');
         return { success: true, filePath };
