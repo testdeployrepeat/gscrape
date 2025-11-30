@@ -19,6 +19,7 @@
   "dependencies": {
     "@puppeteer/browsers": "^2.4.1",
     "csv-parser": "^3.0.0",
+    "electron-updater": "^6.1.7",
     "papaparse": "^5.4.1",
     "puppeteer-core": "^24.27.0",
     "puppeteer-extra": "^3.3.6",
@@ -28,9 +29,22 @@
     "appId": "com.gscrape.app",
     "productName": "gscrape",
     "icon": "app-logo.png",
+    "publish": {
+      "provider": "github",
+      "owner": "testdeployrepeat",
+      "repo": "gscrape"
+    },
     "win": {
       "target": "nsis",
-      "icon": "app-logo.png"
+      "icon": "app-logo.png",
+      "nsis": {
+        "oneClick": false,
+        "allowToChangeInstallationDirectory": true,
+        "uninstallDisplayName": "gscrape",
+        "include": "scripts/clean_uninstall.nsh",
+        "installerSidebar": null,
+        "uninstallerSidebar": null
+      }
     },
     "mac": {
       "target": "dmg",

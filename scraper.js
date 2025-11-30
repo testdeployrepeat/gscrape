@@ -229,13 +229,13 @@ async function scrapeGoogleMaps(options, progressCallback) {
         const hasConsentButton = buttons.some(button => {
           const label = button.getAttribute('aria-label') || '';
           return label.toLowerCase().includes('accept') ||
-                 label.toLowerCase().includes('agree') ||
-                 label.toLowerCase().includes('consent');
+            label.toLowerCase().includes('agree') ||
+            label.toLowerCase().includes('consent');
         });
 
         // Check for modal dialog which is often used for consent
         const hasModal = document.querySelector('div[aria-modal="true"]') !== null ||
-                        document.querySelector('div[role="dialog"]') !== null;
+          document.querySelector('div[role="dialog"]') !== null;
 
         return hasConsentButton || hasModal;
       });
@@ -270,6 +270,7 @@ async function scrapeGoogleMaps(options, progressCallback) {
     progressCallback({ status: 'scrolling', message: 'Loading all results...' });
     await scrollResultsFeed(page, speed);
 
+    // Check if we should stop before extraction
     if (shouldStop) throw new Error('Scraping cancelled by user');
 
     progressCallback({ status: 'extracting', message: 'Extracting business information from list...' });

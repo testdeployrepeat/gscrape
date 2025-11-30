@@ -141,9 +141,26 @@ bulkSelectAllLink.addEventListener('click', (e) => {
   toggleSelectAllBulk();
 });
 exportSelectedBtn.addEventListener('click', () => {
-  document.getElementById('exportOptionsModal').classList.add('show');
+  // Get only regular history records that are selected
+  const selectedRegularRecords = Array.from(selectedHistoryItems).filter(timestamp => {
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && !record.isBulk;
+  });
+
+  if (selectedRegularRecords.length === 1) {
+    // If only one regular record is selected, export it directly
+    const record = history.searches.find(s => s.timestamp === selectedRegularRecords[0]);
+    if (record) {
+      exportSingleRecord(record);
+    }
+  } else {
+    // For multiple records or if no selection, show the export options modal
+    document.getElementById('exportOptionsModal').classList.add('show');
+  }
 });
 bulkExportSelectedBtn.addEventListener('click', () => {
+  // For bulk sessions, always show the export options modal since a single bulk record
+  // contains multiple queries that might need to be exported separately
   document.getElementById('exportOptionsModal').classList.add('show');
 });
 deleteSelectedBtn.addEventListener('click', () => {
@@ -447,6 +464,37 @@ bulkQueriesInput.addEventListener('input', handleManualInput);
 
 window.electronAPI.onScrapingProgress((progress) => {
   updateProgress(progress);
+});
+
+// Update event handlers
+window.electronAPI.onUpdateAvailable((info) => {
+  showUpdateNotification(`New version ${info.version} is available. Downloading...`);
+});
+
+window.electronAPI.onUpdateNotAvailable((info) => {
+  console.log('Update not available');
+});
+
+window.electronAPI.onUpdateError((errorInfo) => {
+  console.error('Update error:', errorInfo.error);
+});
+
+window.electronAPI.onUpdateDownloadProgress((progress) => {
+  // Update UI to show download progress if needed
+  console.log(`Download progress: ${Math.round(progress.percent)}%`);
+});
+
+window.electronAPI.onUpdateDownloaded((info) => {
+  showUpdateNotification(`Update to version ${info.version} downloaded. Restart to apply?`, true);
+});
+
+// Check for updates button handler (if you want to add it to UI)
+document.getElementById('checkForUpdates')?.addEventListener('click', async () => {
+  try {
+    await window.electronAPI.checkForUpdates();
+  } catch (error) {
+    console.error('Error checking for updates:', error);
+  }
 });
 
 // Functions
@@ -1316,38 +1364,29 @@ async function startSingleScraping() {
   headerStartBtn.style.opacity = '1';
 
   if (result.stopped) {
-    if (result.data && result.data.length > 0) {
-      scrapedData = result.data;
-      renderResults(result.data);
+    // For single scraping mode, when stopped midway, do not save any data
+    scrapedData = [];
+    resultsContainer.innerHTML = '<div class="empty-state"><p>No results yet</p></div>';
+    resultsActions.style.display = 'none';
+    updateStats();
 
-      // Save cancelled scrape to history with status
-      history.searches.push({
-        query,
-        count: result.data.length,
-        timestamp: new Date().toISOString(),
-        data: result.data,
-        status: 'cancelled',
-        isBulk: false
-      });
-      await window.electronAPI.saveHistory(history);
-      renderHistory();
-      updateStats();
-
-      progressText.textContent = `⏸ Stopped. Extracted ${result.data.length} businesses so far.`;
-      progressText.style.color = 'var(--warning)';
-    } else {
-      progressText.textContent = '⏸ Scraping stopped by user.';
-      progressText.style.color = 'var(--text-secondary)';
-    }
+    progressText.textContent = '⏸ Scraping stopped by user. No data saved.';
+    progressText.style.color = 'var(--text-secondary)';
   } else if (result.success) {
-    scrapedData = result.data;
-    renderResults(result.data);
+    // Add search_query and search_location to each result for consistency with bulk mode
+    const dataWithQuery = result.data.map(item => ({
+      ...item,
+      search_query: query,
+      search_location: location
+    }));
+    scrapedData = dataWithQuery;
+    renderResults(dataWithQuery);
 
     history.searches.push({
       query,
       count: result.data.length,
       timestamp: new Date().toISOString(),
-      data: result.data // Save the actual data in history
+      data: dataWithQuery // Save the actual data in history with query and location info
     });
     await window.electronAPI.saveHistory(history);
     renderHistory();
@@ -1594,6 +1633,11 @@ async function startBulkScraping(resumedTimestamp = null) {
         currentSearchQuery.textContent = query;
 
         if (result.stopped) {
+          // Remove any data that was scraped for the current query since it was interrupted
+          if (result.data && result.data.length > 0) {
+            // Remove results from the current query from the scrapedData array
+            scrapedData = scrapedData.filter(item => item.search_location !== location);
+          }
           localStorage.setItem(resumeKey, queryIndex.toString());
           break;
         }
@@ -1763,6 +1807,11 @@ async function startBulkScraping(resumedTimestamp = null) {
         const result = await window.electronAPI.startScraping(options);
 
         if (result.stopped) {
+          // Remove any data that was scraped for the current query since it was interrupted
+          if (result.data && result.data.length > 0) {
+            // Remove results from the current query from the scrapedData array
+            scrapedData = scrapedData.filter(item => item.search_location !== location);
+          }
           localStorage.setItem(resumeKey, i.toString());
           break;
         }
@@ -1902,7 +1951,13 @@ async function startBulkScraping(resumedTimestamp = null) {
       );
 
       if (processingRecordIndex !== -1) {
-        // Update the existing processing record to paused, preserving all data
+        // Remove data from the currently running query if it wasn't completed
+        // Get the location of the current query (the one that was interrupted)
+        const currentQueryLocation = bulkQueries[currentIndex];
+
+        // Filter out data from the currently running query
+        const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
+
         // Calculate the actual number of completed queries based on queryStatus
         let actualCompletedCount = 0;
         if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
@@ -1916,8 +1971,8 @@ async function startBulkScraping(resumedTimestamp = null) {
 
         // Update the record in place rather than replacing completely
         history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
-        history.searches[processingRecordIndex].count = scrapedData.length;
-        history.searches[processingRecordIndex].data = scrapedData;
+        history.searches[processingRecordIndex].count = filteredData.length;
+        history.searches[processingRecordIndex].data = filteredData;
         history.searches[processingRecordIndex].status = 'paused';
 
         // Update bulkData - determine remaining queries from queryStatus
@@ -1936,12 +1991,16 @@ async function startBulkScraping(resumedTimestamp = null) {
         history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
       } else {
         // Fallback: add new record if processing record not found
+        // In this case, we also need to filter out data from the current query
+        const currentQueryLocation = bulkQueries[currentIndex];
+        const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
+
         const remainingQueries = bulkQueries.slice(currentIndex);
         history.searches.push({
           query: `Bulk: ${niche} (${currentIndex}/${bulkQueries.length} completed)`,
-          count: scrapedData.length,
+          count: filteredData.length,
           timestamp: new Date().toISOString(),
-          data: scrapedData,
+          data: filteredData,
           status: 'paused',
           isBulk: true,
           bulkData: {
@@ -1989,6 +2048,13 @@ async function startBulkScraping(resumedTimestamp = null) {
       );
 
       if (processingRecordIndex !== -1) {
+        // Remove data from the currently running query if it wasn't completed
+        // Get the location of the current query (the one that was interrupted)
+        const currentQueryLocation = bulkQueries[currentIndex];
+
+        // Filter out data from the currently running query
+        const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
+
         // Calculate completed count based on queryStatus
         let actualCompletedCount = 0;
         if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
@@ -2003,6 +2069,8 @@ async function startBulkScraping(resumedTimestamp = null) {
         // Update the record in place rather than replacing
         history.searches[processingRecordIndex].status = 'paused';
         history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
+        history.searches[processingRecordIndex].count = filteredData.length;
+        history.searches[processingRecordIndex].data = filteredData;
 
         // Update remaining queries based on queryStatus
         const remainingQueries = [];
@@ -3218,4 +3286,64 @@ function showCustomAlert(title, message) {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', alertHtml);
+}
+
+// Show update notification with optional action button
+function showUpdateNotification(message, showRestartButton = false) {
+  // Remove existing notification if any
+  const existingNotification = document.getElementById('updateNotification');
+  if (existingNotification) existingNotification.remove();
+
+  let buttonHtml = '';
+  if (showRestartButton) {
+    buttonHtml = `<div style="display: flex; gap: 12px; margin-top: 15px;">
+                    <button class="btn-secondary" id="dismissUpdateBtn">Dismiss</button>
+                    <button class="btn-primary" id="restartUpdateBtn">Restart Now</button>
+                  </div>`;
+  } else {
+    buttonHtml = `<div style="display: flex; justify-content: center; margin-top: 15px;">
+                    <button class="btn-primary" id="dismissUpdateBtn">OK</button>
+                  </div>`;
+  }
+
+  const notification = document.createElement('div');
+  notification.id = 'updateNotification';
+  notification.className = 'modal show';
+  notification.innerHTML = `
+    <div class="modal-content" style="width: 400px; max-width: 90vw; text-align: center;">
+      <div class="modal-header">
+        <h2>Update Available</h2>
+        <button class="btn-icon" id="closeUpdateNotification">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-secondary); margin-bottom: 10px;">${message}</p>
+        ${buttonHtml}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(notification);
+
+  // Add event listeners
+  document.getElementById('closeUpdateNotification').addEventListener('click', () => {
+    notification.remove();
+  });
+
+  document.getElementById('dismissUpdateBtn').addEventListener('click', () => {
+    notification.remove();
+  });
+
+  if (showRestartButton) {
+    document.getElementById('restartUpdateBtn').addEventListener('click', async () => {
+      try {
+        await window.electronAPI.restartAndInstall();
+      } catch (error) {
+        console.error('Error restarting app for update:', error);
+      }
+    });
+  }
 }

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 
@@ -280,3 +281,45 @@ ipcMain.handle('export-data-to-folder', async (event, { data, format, filename, 
         return { success: false, error: error.message };
     }
 });
+
+// Auto-update functionality
+autoUpdater.on('update-available', (info) => {
+    mainWindow.webContents.send('update-available', info);
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    mainWindow.webContents.send('update-not-available', info);
+});
+
+autoUpdater.on('error', (err) => {
+    mainWindow.webContents.send('update-error', { error: err.message });
+});
+
+autoUpdater.on('download-progress', (progress) => {
+    mainWindow.webContents.send('update-download-progress', progress);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    mainWindow.webContents.send('update-downloaded', info);
+});
+
+ipcMain.handle('check-for-updates', async () => {
+    try {
+        await autoUpdater.checkForUpdates();
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('restart-and-install', async () => {
+    autoUpdater.quitAndInstall();
+    return { success: true };
+});
+
+// Check for updates on startup (with a delay to let the app load first)
+setTimeout(() => {
+    if (app.isPackaged) { // Only check for updates when packaged, not during development
+        autoUpdater.checkForUpdates();
+    }
+}, 10000); // Check for updates after 10 seconds
