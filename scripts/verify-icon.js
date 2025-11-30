@@ -1,13 +1,19 @@
 const fs = require('fs');
 const path = require('path');
 
-// Check if app-logo.png exists
-const logoPath = path.join(__dirname, '..', 'app-logo.png');
+// Check if any of the new logo files exist
+const lightLogoPath = path.join(__dirname, '..', 'app-logo-lightmode.png');
+const darkLogoPath = path.join(__dirname, '..', 'app-logo-darkmode.png');
+const desktopIconPath = path.join(__dirname, '..', 'desktop-icon.png');
 
-if (fs.existsSync(logoPath)) {
-    console.log('✓ App logo found at:', logoPath);
-    console.log('✓ Electron-builder will automatically convert PNG to ICO for Windows');
+// Check for desktop icon (which is used for Windows) first
+if (fs.existsSync(desktopIconPath)) {
+    console.log('✓ Desktop icon found at:', desktopIconPath);
+} else if (fs.existsSync(lightLogoPath)) {
+    console.log('✓ Light mode app logo found at:', lightLogoPath);
+} else if (fs.existsSync(darkLogoPath)) {
+    console.log('✓ Dark mode app logo found at:', darkLogoPath);
 } else {
-    console.error('✗ App logo not found! Please ensure app-logo.png exists in the root directory.');
+    console.error('✗ No app logo found! Please ensure desktop-icon.png, app-logo-lightmode.png, or app-logo-darkmode.png exists in the root directory.');
     process.exit(1);
 }

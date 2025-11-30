@@ -616,7 +616,7 @@ input:checked+.slider:before {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  max-height: 400px;
+  max-height: 200px;
   /* Limit the height to make it scrollable */
 }
 

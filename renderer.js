@@ -91,6 +91,25 @@ try {
 
 // Event Listeners
 bulkModeToggle.addEventListener('change', toggleBulkMode);
+
+// Speed mode change handler - updates subtext based on mode
+speedSelect.addEventListener('change', () => {
+  const isBulkMode = bulkModeToggle.checked;
+  const fastModeSubtext = document.getElementById('fastModeSubtext');
+  const selectedOption = speedSelect.options[speedSelect.selectedIndex];
+
+  if (speedSelect.value === 'fast') {
+    // Show appropriate text based on mode
+    const subtextContent = isBulkMode
+      ? selectedOption.getAttribute('data-bulk-text')
+      : selectedOption.getAttribute('data-single-text');
+
+    fastModeSubtext.textContent = subtextContent;
+    fastModeSubtext.style.display = 'block';
+  } else {
+    fastModeSubtext.style.display = 'none';
+  }
+});
 document.getElementById('headerStartBtn').addEventListener('click', () => {
   if (isScrapingActive) {
     stopScraping();
@@ -245,7 +264,19 @@ document.getElementById('themeSelect').addEventListener('change', (e) => {
   const theme = e.target.value;
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
+
+  // Update logo based on selected theme
+  updateLogoForTheme(theme);
 });
+
+function updateLogoForTheme(theme) {
+  const logoImg = document.getElementById('appLogo');
+  if (theme === 'dark') {
+    logoImg.src = 'app-logo-darkmode.png';
+  } else {
+    logoImg.src = 'app-logo-lightmode.png';
+  }
+}
 
 // Webhook URL event listener
 const webhookUrlInput = document.getElementById('webhookUrl');
@@ -260,67 +291,12 @@ if (webhookUrlInput) {
 document.getElementById('copyEmailBtn').addEventListener('click', () => {
   const email = 'joserobertodeguia@gmail.com';
   navigator.clipboard.writeText(email).then(() => {
-    showCopiedNotification();
+    showCopiedNotification('copyEmailBtn', 'Copied!');
   }).catch(err => {
     console.error('Failed to copy email: ', err);
   });
 });
 
-// Create a function to show the "Copied" notification
-function showCopiedNotification() {
-  // Remove any existing notifications
-  const existingNotification = document.getElementById('copied-notification');
-  if (existingNotification) {
-    existingNotification.remove();
-  }
-
-  const copyEmailBtn = document.getElementById('copyEmailBtn');
-  if (!copyEmailBtn) return;
-
-  // Create notification element
-  const notification = document.createElement('div');
-  notification.id = 'copied-notification';
-  notification.textContent = 'Copied!';
-  notification.style.position = 'absolute';
-  notification.style.backgroundColor = 'var(--success, #10b981)';
-  notification.style.color = 'white';
-  notification.style.padding = '6px 12px';
-  notification.style.borderRadius = '4px';
-  notification.style.zIndex = '10000';
-  notification.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-  notification.style.opacity = '0';
-  notification.style.transform = 'translateY(10px)';
-  notification.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-  notification.style.fontSize = '12px';
-  notification.style.whiteSpace = 'nowrap';
-
-  // Position the notification near the email button
-  const rect = copyEmailBtn.getBoundingClientRect();
-  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-  const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-
-  notification.style.top = (rect.top + scrollTop - 35) + 'px'; // Position above the button
-  notification.style.left = (rect.left + scrollLeft + rect.width / 2 - notification.offsetWidth / 2) + 'px';
-
-  document.body.appendChild(notification);
-
-  // Trigger animation
-  setTimeout(() => {
-    notification.style.opacity = '1';
-    notification.style.transform = 'translateY(0)';
-  }, 10);
-
-  // Remove after 3 seconds
-  setTimeout(() => {
-    notification.style.opacity = '0';
-    notification.style.transform = 'translateY(10px)';
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
-    }, 300);
-  }, 3000);
-}
 
 // Preposition dropdown handlers
 searchPrepositionSingle.addEventListener('change', (e) => {
@@ -519,16 +495,17 @@ function toggleBulkMode() {
     singleMode.style.display = 'block';
     bulkMode.style.display = 'none';
 
-    // In single mode, grey out fast mode option and show subtext
+    // In single mode, grey out fast mode option
     const speedSelect = document.getElementById('speed');
     const fastOption = speedSelect.querySelector('option[value="fast"]');
     if (fastOption) {
       fastOption.disabled = false; // Keep enabled but show it's for emails
       fastOption.style.opacity = '0.6'; // Visually indicate it's different
     }
-
-    document.getElementById('fastModeSubtext').style.display = 'block';
   }
+
+  // Trigger speed change to update subtext for current mode
+  speedSelect.dispatchEvent(new Event('change'));
 }
 
 function handleDragOver(e) {
@@ -742,17 +719,83 @@ function renderHistory() {
     bulkSelectAllLink.textContent = 'Select All'; // Default to 'Select All'
   }
 
+  // Helper function to uncheck opposite section (History vs Bulk Sessions)
+  function uncheckOppositeSection(selectedRecord) {
+    const isBulk = selectedRecord && selectedRecord.isBulk;
+    const allCheckboxes = document.querySelectorAll('.history-checkbox');
+
+    allCheckboxes.forEach(cb => {
+      const timestamp = cb.dataset.timestamp;
+      const record = history.searches.find(s => s.timestamp === timestamp);
+
+      // If clicking bulk, uncheck regular (and vice versa)
+      if (record && record.isBulk !== isBulk) {
+        cb.checked = false;
+        selectedHistoryItems.delete(timestamp);
+      }
+    });
+  }
+
+  // Helper function to update live results from selected records
+  function updateLiveResultsFromSelection() {
+    if (selectedHistoryItems.size === 0) {
+      renderResults([]);
+      return;
+    }
+
+    const selectedRecords = history.searches.filter(s =>
+      selectedHistoryItems.has(s.timestamp)
+    );
+
+    const combinedData = [];
+    selectedRecords.forEach(record => {
+      if (record.data && Array.isArray(record.data)) {
+        combinedData.push(...record.data);
+      }
+    });
+
+    renderResults(combinedData);
+  }
+
+  // Helper function to update stats from selected records
+  function updateStatsFromSelection() {
+    if (selectedHistoryItems.size === 0) {
+      updateStats();
+      return;
+    }
+
+    const selectedRecords = history.searches.filter(s =>
+      selectedHistoryItems.has(s.timestamp)
+    );
+
+    const combinedData = [];
+    selectedRecords.forEach(record => {
+      if (record.data && Array.isArray(record.data)) {
+        combinedData.push(...record.data);
+      }
+    });
+
+    updateStats(combinedData);
+  }
+
   // Add checkbox change handlers for all history items (regular and bulk sessions)
   document.querySelectorAll('.history-checkbox').forEach(cb => {
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
       const timestamp = cb.dataset.timestamp;
+      const record = history.searches.find(s => s.timestamp === timestamp);
+
       if (cb.checked) {
         selectedHistoryItems.add(timestamp);
+        // Auto-uncheck opposite section
+        uncheckOppositeSection(record);
       } else {
         selectedHistoryItems.delete(timestamp);
       }
+
       updateSelectionUI();
+      updateLiveResultsFromSelection();
+      updateStatsFromSelection();
 
       // Update regular history select all link text based only on regular history items
       const allCheckboxes = document.querySelectorAll('.history-checkbox');
@@ -1549,7 +1592,6 @@ async function startBulkScraping(resumedTimestamp = null) {
   // Start timer
   startTimer();
   const queryStartTimes = [];
-
   // Check if running in fast mode for parallel processing
   if (selectedSpeed === 'fast' || selectedSpeed === 'ultra-fast') {
     // Show fast mode content in the existing progress section
@@ -2570,6 +2612,17 @@ function showCopiedNotification(parentId, message) {
     notification.style.opacity = '1';
     notification.style.transform = 'translateY(0)';
   }, 10);
+
+  // Auto-dismiss after 3 seconds
+  setTimeout(() => {
+    notification.style.opacity = '0';
+    notification.style.transform = 'translateY(10px)';
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 300); // Wait for fade-out animation
+  }, 3000);
 }
 
 
@@ -2647,6 +2700,9 @@ async function initializeSettings() {
   const savedTheme = localStorage.getItem('theme') || 'dark';
   document.getElementById('themeSelect').value = savedTheme;
   document.documentElement.setAttribute('data-theme', savedTheme);
+
+  // Update logo based on saved theme
+  updateLogoForTheme(savedTheme);
 
 
 
@@ -2933,6 +2989,8 @@ function toggleSelectAll() {
     selectAllLink.textContent = 'Deselect All';
   }
   updateSelectionUI();
+  updateLiveResultsFromSelection();
+  updateStatsFromSelection();
 }
 
 // Toggle select all for bulk sessions only
@@ -2963,6 +3021,8 @@ function toggleSelectAllBulk() {
     bulkSelectAllLink.textContent = 'Deselect All';
   }
   updateSelectionUI();
+  updateLiveResultsFromSelection();
+  updateStatsFromSelection();
 }
 
 function updateSelectionUI() {

@@ -3,22 +3,40 @@
 A fast, powerful, open-source desktop application for scraping business data from Google Maps. Built with Electron and Puppeteer.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-green.svg)
 
-## 🆕 What's New (v1.1.0)
-- Major UI update
-- Minor bug fixes and improvements
+## 🆕 What's New (v2.0.0)
+- Auto-update functionality added
+- Improved uninstaller with complete data cleanup
+- Dynamic light/dark mode logos
+- Enhanced UI with theme-aware icons
+- Better error handling and user feedback
 
 ## 📥 Installation / Download
 
 ### Windows
-1. Download the latest release: [GScrape v1.2.0.exe](https://github.com/testdeployrepeat/gscrape/releases/download/v1.1.0/gscrape.Setup.1.1.0.exe)
+1. Download the latest release: [GScrape v2.0.0.exe](https://github.com/testdeployrepeat/gscrape/releases/download/v2.0.0/gscrape.Setup.2.0.0.exe)
 2. Run the installer
 3. Launch from Desktop or Start Menu
 
 > **Note**: Windows may show a security warning. Click "More info" → "Run anyway"
 
 > **✅ Chrome Bundled**: No Chrome installation required!
+
+### Installation Size
+
+The installer is approximately **1 GB** when installed. This is normal for Electron + Puppeteer applications and includes:
+
+| Component | Size | Purpose |
+|-----------|------|---------|
+| Chrome Browser | ~385 MB | Web scraping engine |
+| Electron Framework | ~250 MB | Desktop app runtime |
+| Dependencies | ~250 MB | Required libraries |
+| App Code & Assets | ~50 MB | Application files |
+| Installer Overhead | ~65 MB | Installation files |
+| **Total** | ~1 GB (estimate after installation) | |
+
+I'll be removing chrome in future updates to reduce total size ^__^
 
 ### macOS/Linux
 

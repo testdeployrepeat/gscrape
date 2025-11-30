@@ -1,6 +1,6 @@
 {
   "name": "gscrape",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Fast Google Maps Business Scraper",
   "main": "main.js",
   "scripts": {
@@ -28,7 +28,6 @@
   "build": {
     "appId": "com.gscrape.app",
     "productName": "gscrape",
-    "icon": "app-logo.png",
     "publish": {
       "provider": "github",
       "owner": "testdeployrepeat",
@@ -36,15 +35,18 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "app-logo.png",
-      "nsis": {
-        "oneClick": false,
-        "allowToChangeInstallationDirectory": true,
-        "uninstallDisplayName": "gscrape",
-        "include": "scripts/clean_uninstall.nsh",
-        "installerSidebar": null,
-        "uninstallerSidebar": null
-      }
+      "icon": "favicon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "uninstallDisplayName": "gscrape",
+      "include": "scripts/clean_uninstall.nsh",
+      "installerSidebar": null,
+      "uninstallerSidebar": null,
+      "license": "build/disclaimer.txt",
+      "warningsAsErrors": false
     },
     "mac": {
       "target": "dmg",

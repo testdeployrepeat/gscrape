@@ -17,7 +17,7 @@
     <!-- Header -->
     <header class="header">
       <div class="logo">
-        <img src="app-logo.png" alt="App Logo" height="80px" width="80px">
+        <img id="appLogo" src="app-logo-darkmode.png" alt="App Logo" height="80px" width="80px">
       </div>
       <div class="header-actions">
         <button id="settingsBtn" class="btn-icon" title="Settings">
@@ -38,7 +38,7 @@
             <path
               d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
           </svg>
-          Help me buy a macbook ^_^
+          Help this brokie :D
         </button>
         <button id="headerStartBtn" class="btn-primary" style="padding: 10px 20px; width: auto;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -63,9 +63,9 @@
         </div>
         <div class="modal-body">
           <p style="text-align: center; margin-bottom: 24px; color: var(--text-secondary);">
-            If you find this tool helpful, consider supporting its development! Help me build native apps and not fully
-            rely on cross-platform frameworks
-            <br>You can also hire me as a Dev | GHL | N8N | Make.com specialist :D
+            If you find this tool helpful, consider supporting its development!
+            <br>You can also hire me as a Dev | ghl |
+            n8n | Make.com | Vibe Coding specialist :D
           </p>
           <div class="support-options">
             <a href="https://paypal.me/josedeguia" target="_blank" class="support-link paypal">
@@ -88,6 +88,41 @@
                 <span>wise.com/pay/me/joserobertoquimod</span>
               </div>
             </a>
+          </div>
+
+          <!-- Disclaimer Section -->
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+            <div style="text-align: center; padding: 10px;">
+              <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">by Rob De Guia</p>
+              <p style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 15px; line-height: 1.4;">
+                This tool is for educational purposes only. Please make sure to comply with Google Maps' Terms of
+                Service and applicable laws when using this software.
+              </p>
+              <p style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 15px;">
+                Contact: <a href="mailto:joserobertodeguia@gmail.com"
+                  style="color: var(--accent-primary); text-decoration: none;">joserobertodeguia@gmail.com</a>
+              </p>
+              <div style="display: flex; justify-content: center; gap: 15px; margin-top: 10px;">
+                <a href="https://www.linkedin.com/in/joserobertodeguia" target="_blank" class="settings-social-link">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z" />
+                  </svg>
+                </a>
+                <a href="https://github.com/testdeployrepeat" target="_blank" class="settings-social-link">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                  </svg>
+                </a>
+                <a href="https://x.com/robydeguia" target="_blank" class="settings-social-link">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+                  </svg>
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -565,11 +600,11 @@
                 <label for="speed">Speed</label>
                 <select id="speed">
                   <option value="normal">Normal</option>
-                  <option value="fast">Fast</option>
+                  <option value="fast" data-single-text="Scrapes emails faster"
+                    data-bulk-text="Scrapes emails faster + queries in parallel">Fast</option>
                 </select>
                 <small id="fastModeSubtext"
-                  style="display: none; color: var(--text-secondary); margin-top: 4px; font-size: 12px; font-style: italic;">Attempts
-                  to scrape emails faster</small>
+                  style="display: none; color: var(--text-secondary); margin-top: 4px; font-size: 12px; font-style: italic;"></small>
               </div>
 
               <div class="form-group">

@@ -1,19 +1,19 @@
 # Dependencies
 node_modules/
 
-# Chrome binary (downloaded during install)
+# Chrome browser bundle (downloaded via postinstall script)
 chrome/
 
-# Build output
+# Build outputs (uploaded manually to GitHub Releases)
 dist/
-
-# Data files (user data stored in AppData)
-data/
-*.db
+out/
 
 # Logs
 *.log
+build_log*.txt
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # OS files
 .DS_Store
@@ -25,7 +25,7 @@ desktop.ini
 .idea/
 *.swp
 *.swo
-*~T
+*~
 
 # Environment
 .env
@@ -35,5 +35,10 @@ desktop.ini
 *.tmp
 *.temp
 
+# User data (stored in AppData)
+data/
+*.db
+
+# Markdown files (except README)
 *.md
 !README.md
