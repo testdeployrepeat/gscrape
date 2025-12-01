@@ -172,15 +172,37 @@ exportSelectedBtn.addEventListener('click', () => {
     if (record) {
       exportSingleRecord(record);
     }
+  } else if (selectedRegularRecords.length >= 2) {
+    // If 2 or more regular records are selected, show the export options modal
+    document.getElementById('exportOptionsModal').classList.add('show');
   } else {
-    // For multiple records or if no selection, show the export options modal
+    // For no selection, show the export options modal (fallback behavior)
     document.getElementById('exportOptionsModal').classList.add('show');
   }
 });
 bulkExportSelectedBtn.addEventListener('click', () => {
-  // For bulk sessions, always show the export options modal since a single bulk record
-  // contains multiple queries that might need to be exported separately
-  document.getElementById('exportOptionsModal').classList.add('show');
+  // Get only bulk session records that are selected
+  const selectedBulkRecords = Array.from(selectedHistoryItems).filter(timestamp => {
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    return record && record.isBulk;
+  });
+
+  if (selectedBulkRecords.length >= 2) {
+    // If 2 or more bulk session records are selected, show the export options modal
+    document.getElementById('exportOptionsModal').classList.add('show');
+  } else if (selectedBulkRecords.length === 1) {
+    // If only one bulk session record is selected, show the export options modal
+    // since a single bulk record contains multiple queries that might need to be exported separately
+    const record = history.searches.find(s => s.timestamp === selectedBulkRecords[0]);
+    if (record) {
+      // Store the record for export when user chooses an option
+      window.currentExportRecord = record;
+      document.getElementById('exportOptionsModal').classList.add('show');
+    }
+  } else {
+    // For no selection, show the export options modal (fallback behavior)
+    document.getElementById('exportOptionsModal').classList.add('show');
+  }
 });
 deleteSelectedBtn.addEventListener('click', () => {
   const count = selectedHistoryItems.size;
@@ -2393,34 +2415,101 @@ function renderResults(data) {
 }
 
 async function exportData() {
-  if (!scrapedData || scrapedData.length === 0) {
-    alert('No data to export');
-    return;
-  }
+  // Check if any history items are selected
+  if (selectedHistoryItems.size > 0) {
+    const selectedRegularRecords = Array.from(selectedHistoryItems).filter(timestamp => {
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      return record && !record.isBulk;
+    });
 
-  const format = exportFormatSelect.value;
+    const selectedBulkRecords = Array.from(selectedHistoryItems).filter(timestamp => {
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      return record && record.isBulk;
+    });
 
-  // Use query name for filename instead of timestamp
-  let queryName = 'export';
-  if (nicheInput.value && locationInput.value) {
-    queryName = `${nicheInput.value.trim()}-${locationInput.value.trim()}`;
-  } else if (bulkNicheInput.value) {
-    queryName = bulkNicheInput.value.trim();
-  }
-  // Clean filename
-  queryName = queryName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-  const filename = `${queryName}.${format}`;
+    if (selectedRegularRecords.length >= 2) {
+      // If 2 or more regular history records are selected, show export options modal
+      document.getElementById('exportOptionsModal').classList.add('show');
+    } else if (selectedBulkRecords.length >= 2) {
+      // If 2 or more bulk session records are selected, show export options modal
+      document.getElementById('exportOptionsModal').classList.add('show');
+    } else if (selectedRegularRecords.length === 1) {
+      // If only one regular record is selected, export it directly
+      const record = history.searches.find(s => s.timestamp === selectedRegularRecords[0]);
+      if (record) {
+        exportSingleRecord(record);
+      }
+    } else if (selectedBulkRecords.length === 1) {
+      // If only one bulk record is selected, show export options modal
+      const record = history.searches.find(s => s.timestamp === selectedBulkRecords[0]);
+      if (record) {
+        // Store the record for export when user chooses an option
+        window.currentExportRecord = record;
+        document.getElementById('exportOptionsModal').classList.add('show');
+      }
+    } else {
+      // Fallback to default behavior if no records match the above conditions
+      if (!scrapedData || scrapedData.length === 0) {
+        alert('No data to export');
+        return;
+      }
 
-  const result = await window.electronAPI.exportData({
-    data: scrapedData,
-    format,
-    filename
-  });
+      const format = exportFormatSelect.value;
 
-  if (result.success && !result.cancelled) {
-    alert(`Data exported successfully to:\n${result.filePath}`);
-  } else if (!result.cancelled) {
-    alert(`Export failed: ${result.error}`);
+      // Use query name for filename instead of timestamp
+      let queryName = 'export';
+      if (nicheInput.value && locationInput.value) {
+        queryName = `${nicheInput.value.trim()}-${locationInput.value.trim()}`;
+      } else if (bulkNicheInput.value) {
+        queryName = bulkNicheInput.value.trim();
+      }
+      // Clean filename
+      queryName = queryName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const filename = `${queryName}.${format}`;
+
+      const result = await window.electronAPI.exportData({
+        data: scrapedData,
+        format,
+        filename
+      });
+
+      if (result.success && !result.cancelled) {
+        alert(`Data exported successfully to:\n${result.filePath}`);
+      } else if (!result.cancelled) {
+        alert(`Export failed: ${result.error}`);
+      }
+    }
+  } else {
+    // Default behavior - export current scraped data if no history items are selected
+    if (!scrapedData || scrapedData.length === 0) {
+      alert('No data to export');
+      return;
+    }
+
+    const format = exportFormatSelect.value;
+
+    // Use query name for filename instead of timestamp
+    let queryName = 'export';
+    if (nicheInput.value && locationInput.value) {
+      queryName = `${nicheInput.value.trim()}-${locationInput.value.trim()}`;
+    } else if (bulkNicheInput.value) {
+      queryName = bulkNicheInput.value.trim();
+    }
+    // Clean filename
+    queryName = queryName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    const filename = `${queryName}.${format}`;
+
+    const result = await window.electronAPI.exportData({
+      data: scrapedData,
+      format,
+      filename
+    });
+
+    if (result.success && !result.cancelled) {
+      alert(`Data exported successfully to:\n${result.filePath}`);
+    } else if (!result.cancelled) {
+      alert(`Export failed: ${result.error}`);
+    }
   }
 }
 
