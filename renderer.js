@@ -30,8 +30,7 @@ const searchPrepositionBulk = document.getElementById('searchPrepositionBulk');
 const customPrepositionBulk = document.getElementById('customPrepositionBulk');
 const extractEmailsCheckbox = document.getElementById('extractEmails');
 const extractEmailsBulkCheckbox = document.getElementById('extractEmailsBulk');
-const extractDetailedInfoCheckbox = document.getElementById('extractDetailedInfo');
-const extractDetailedInfoBulkCheckbox = document.getElementById('extractDetailedInfoBulk');
+const detailedInfoExtractionCheckbox = document.getElementById('detailedInfoExtraction');
 const headerStartBtn = document.getElementById('headerStartBtn');
 const exportBtn = document.getElementById('exportBtn');
 const clearResultsBtn = document.getElementById('clearResultsBtn');
@@ -68,6 +67,7 @@ const fastModeParallelScrapingDefaultBtn = document.getElementById('fastModePara
 const fastModeEmailScrapingInput = document.getElementById('fastModeEmailScraping');
 const fastModeEmailWarning = document.getElementById('fastModeEmailWarning');
 const fastModeEmailScrapingDefaultBtn = document.getElementById('fastModeEmailScrapingDefault');
+const deepEmailExtractionCheckbox = document.getElementById('deepEmailExtraction');
 
 // Track which delete operation is being performed
 let currentDeleteOperation = 'all'; // 'all' for all selected items, 'bulk' for only bulk sessions
@@ -401,12 +401,12 @@ defaultExportFormatSelect.addEventListener('change', (e) => {
   localStorage.setItem('defaultExportFormat', e.target.value);
 });
 
-extractDetailedInfoCheckbox.addEventListener('change', (e) => {
+detailedInfoExtractionCheckbox.addEventListener('change', (e) => {
   localStorage.setItem('detailedInfoMode', e.target.checked);
 });
 
-extractDetailedInfoBulkCheckbox.addEventListener('change', (e) => {
-  localStorage.setItem('detailedInfoMode', e.target.checked);
+deepEmailExtractionCheckbox.addEventListener('change', (e) => {
+  localStorage.setItem('deepEmailExtraction', e.target.checked);
 });
 
 
@@ -1456,9 +1456,10 @@ async function startSingleScraping() {
     location,
     speed: speedSelect.value,
     extractEmails: extractEmailsCheckbox.checked,
-    extractDetailedInfo: document.getElementById('extractDetailedInfo') ? document.getElementById('extractDetailedInfo').checked : false,
+    extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
     headless: headlessModeCheckbox.checked,
-    emailScrapingLimit: parseInt(fastModeEmailScrapingInput.value)
+    emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
+    deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
   };
 
   // Start timer
@@ -1723,9 +1724,11 @@ async function startBulkScraping(resumedTimestamp = null) {
           location,
           speed: selectedSpeed,
           extractEmails: extractEmailsBulkCheckbox.checked,
-          extractDetailedInfo: document.getElementById('extractDetailedInfoBulk') ? document.getElementById('extractDetailedInfoBulk').checked : false,
+          extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
           headless: headlessModeCheckbox.checked,
-          emailScrapingLimit: parseInt(fastModeEmailScrapingInput.value)
+          parallelLimit: parseInt(fastModeParallelScrapingInput.value),
+          emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
+          deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
         }).then(result => ({
           queryIndex,
           location,
@@ -1920,9 +1923,11 @@ async function startBulkScraping(resumedTimestamp = null) {
         location,
         speed: selectedSpeed,
         extractEmails: extractEmailsBulkCheckbox.checked,
-        extractDetailedInfo: document.getElementById('extractDetailedInfoBulk') ? document.getElementById('extractDetailedInfoBulk').checked : false,
+        extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
         headless: headlessModeCheckbox.checked,
-        emailScrapingLimit: parseInt(fastModeEmailScrapingInput.value)
+        parallelLimit: parseInt(fastModeParallelScrapingInput.value),
+        emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
+        deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
       };
 
       try {
@@ -2879,11 +2884,8 @@ async function initializeSettings() {
 
   // Initialize detailed info extraction settings
   const detailedInfoMode = localStorage.getItem('detailedInfoMode') === 'true';
-  if (extractDetailedInfoCheckbox) {
-    extractDetailedInfoCheckbox.checked = detailedInfoMode;
-  }
-  if (extractDetailedInfoBulkCheckbox) {
-    extractDetailedInfoBulkCheckbox.checked = detailedInfoMode;
+  if (detailedInfoExtractionCheckbox) {
+    detailedInfoExtractionCheckbox.checked = detailedInfoMode;
   }
 
 
@@ -2922,6 +2924,12 @@ async function initializeSettings() {
   const webhookUrlInput = document.getElementById('webhookUrl');
   if (webhookUrlInput) {
     webhookUrlInput.value = webhookUrl;
+  }
+
+  // Initialize Deep Email Extraction (off by default)
+  const deepEmailExtraction = localStorage.getItem('deepEmailExtraction') === 'true';
+  if (deepEmailExtractionCheckbox) {
+    deepEmailExtractionCheckbox.checked = deepEmailExtraction;
   }
 }
 

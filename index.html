@@ -369,6 +369,28 @@
               </div>
             </div>
             <div class="form-group">
+              <label class="switch-label">
+                <span>Detailed Info Extraction</span>
+                <label class="switch">
+                  <input type="checkbox" id="detailedInfoExtraction">
+                  <span class="slider"></span>
+                </label>
+              </label>
+              <small>Only enable this if you're not getting phone numbers or website links in your results (Google may
+                be blocking them in certain regions).</small>
+            </div>
+            <div class="form-group">
+              <label class="switch-label">
+                <span>Deep Email Extraction</span>
+                <label class="switch">
+                  <input type="checkbox" id="deepEmailExtraction">
+                  <span class="slider"></span>
+                </label>
+              </label>
+              <small>Enable multi-page crawling (homepage + contact page) for better email discovery. Will be
+                significantly slower.</small>
+            </div>
+            <div class="form-group">
               <label class="switch-label" style="opacity: 0.6; cursor: not-allowed;">
                 <span>Use Proxies (Coming Soon)</span>
                 <label class="switch">
@@ -541,19 +563,7 @@
                   each website link to extract emails (slower)</small>
               </div>
 
-              <div class="form-group">
-                <label class="switch-label">
-                  <span>Detailed Info Extraction</span>
-                  <label class="switch">
-                    <input type="checkbox" id="extractDetailedInfo">
-                    <span class="slider"></span>
-                  </label>
-                </label>
-                <small
-                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Google
-                  Maps hide phone numbers for some search results, this option will attempt to open each card and
-                  extract phone numbers and website links better (slower)</small>
-              </div>
+
             </div>
 
             <!-- Bulk Mode -->
@@ -613,18 +623,7 @@
                   extraction will be significantly slower</small>
               </div>
 
-              <div class="form-group">
-                <label class="switch-label">
-                  <span>Detailed Info Extraction</span>
-                  <label class="switch">
-                    <input type="checkbox" id="extractDetailedInfoBulk">
-                    <span class="slider"></span>
-                  </label>
-                </label>
-                <small
-                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Visits
-                  each business page for more complete information (slower)</small>
-              </div>
+
 
               <div class="bulk-preview" id="bulkPreview" style="display: none;">
                 <strong>Queries: <span id="queryCount">0</span></strong>

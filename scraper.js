@@ -400,12 +400,10 @@ async function scrapeGoogleMaps(options, progressCallback) {
     if (extractEmails && finalResults.length > 0) {
       progressCallback({
         status: 'processing',
-        message: `Websites extracted. Now getting emails...`,
-        total: finalResults.length,
-        data: finalResults // Send current data
+        message: `Extracting emails from ${finalResults.filter(r => r.website).length} websites...`
       });
 
-      await extractEmailsInParallel(browser, finalResults, speed, progressCallback, options.emailScrapingLimit);
+      await extractEmailsInParallel(browser, finalResults, speed, progressCallback, options.emailScrapingLimit, options.deepEmailExtraction);
     }
 
     // Option to visit individual business pages for more complete information
@@ -455,34 +453,50 @@ async function scrapeGoogleMaps(options, progressCallback) {
   }
 }
 
-async function extractEmailsInParallel(browser, results, speed, progressCallback, emailScrapingLimit) {
+async function extractEmailsInParallel(browser, results, speed, progressCallback, emailScrapingLimit, deepExtraction = false) {
   const websitesToScan = results.filter(r => r.website);
   if (websitesToScan.length === 0) return;
 
   progressCallback({ status: 'processing', message: `Searching ${websitesToScan.length} websites for emails...` });
 
   // Use the custom email scraping limit if provided, otherwise use the default based on speed
-  const batchSize = emailScrapingLimit || (speed === 'fast' ? 10 : 5);
+  const concurrency = emailScrapingLimit || (speed === 'fast' ? 10 : 5);
   const timeout = speed === 'fast' ? 14000 : 15000;
 
   let processedCount = 0;
-  for (let i = 0; i < websitesToScan.length; i += batchSize) {
-    if (shouldStop) break;
-    const batch = websitesToScan.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(async (business) => {
-        business.email = await extractEmailFromWebsite(browser, business.website, timeout) || '';
-      })
-    );
-    processedCount += batch.length;
-    progressCallback({
-      status: 'processing',
-      message: `Scanned ${processedCount}/${websitesToScan.length} websites for emails`
-    });
+  let currentIndex = 0;
+
+  // Queue-based processing: maintain constant concurrency
+  const workers = [];
+
+  const processNext = async () => {
+    while (currentIndex < websitesToScan.length && !shouldStop) {
+      const business = websitesToScan[currentIndex++];
+
+      try {
+        business.email = await extractEmailFromWebsite(browser, business.website, timeout, deepExtraction) || '';
+      } catch (error) {
+        business.email = '';
+      }
+
+      processedCount++;
+      progressCallback({
+        status: 'processing',
+        message: `Scanned ${processedCount}/${websitesToScan.length} websites for emails`
+      });
+    }
+  };
+
+  // Start concurrent workers
+  for (let i = 0; i < concurrency; i++) {
+    workers.push(processNext());
   }
+
+  // Wait for all workers to complete
+  await Promise.all(workers);
 }
 
-async function extractEmailFromWebsite(browser, websiteUrl, timeout) {
+async function extractEmailFromWebsite(browser, websiteUrl, timeout, deepExtraction = false) {
   let page;
   try {
     page = await browser.newPage();
@@ -496,15 +510,64 @@ async function extractEmailFromWebsite(browser, websiteUrl, timeout) {
       }
     });
 
+    // Try homepage first
     await page.goto(websiteUrl, { waitUntil: 'domcontentloaded', timeout });
-    const email = await page.evaluate(() => {
-      const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
+
+    let email = await page.evaluate(() => {
+      // 1. Check mailto: links first (most reliable)
+      const mailtoLinks = Array.from(document.querySelectorAll('a[href^="mailto:"]'));
+      if (mailtoLinks.length > 0) {
+        const emailFromLink = mailtoLinks[0].href.replace('mailto:', '').split('?')[0].trim();
+        return emailFromLink;
+      }
+
+      // 2. Enhanced regex pattern for better matching
+      const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
       const html = document.body.innerHTML;
       const matches = html.match(emailRegex) || [];
-      const filtered = matches.filter(e => !['.png', '.jpg', '.gif', 'sentry.io'].some(d => e.toLowerCase().includes(d)));
-      const priority = filtered.find(e => /^(info|contact|support|hello|admin)@/i.test(e));
+
+      // 3. Filter out false positives
+      const filtered = matches.filter(e => {
+        const lower = e.toLowerCase();
+        return !lower.includes('.png') &&
+          !lower.includes('.jpg') &&
+          !lower.includes('.gif') &&
+          !lower.includes('example.com') &&
+          !lower.includes('sentry.io');
+      });
+
+      // 4. Prioritize common business email prefixes
+      const priority = filtered.find(e => /^(info|contact|support|hello|admin|sales|team)@/i.test(e));
       return priority || filtered[0] || '';
     });
+
+    // Deep extraction: check contact page if enabled and no email found
+    if (deepExtraction && !email) {
+      try {
+        const contactUrl = new URL('/contact', websiteUrl).href;
+        await page.goto(contactUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 10000
+        });
+
+        email = await page.evaluate(() => {
+          // Check mailto: links on contact page
+          const mailtoLinks = Array.from(document.querySelectorAll('a[href^="mailto:"]'));
+          if (mailtoLinks.length > 0) {
+            return mailtoLinks[0].href.replace('mailto:', '').split('?')[0].trim();
+          }
+
+          // Fallback to regex
+          const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+          const matches = document.body.textContent.match(emailRegex) || [];
+          const filtered = matches.filter(e => !e.toLowerCase().includes('.png'));
+          return filtered[0] || '';
+        });
+      } catch (e) {
+        // Contact page doesn't exist or failed to load - that's okay
+      }
+    }
+
     return email;
   } catch (error) {
     return '';
@@ -672,7 +735,7 @@ async function getDetailedBusinessInfo(browser, businessUrl, timeout) {
           let text = element.textContent || element.innerText || '';
           // Look for potential phone number patterns
           if (text && text.length > 6 && (text.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/) ||
-              text.match(/\+?[\d\s\-\(\)]{10,}/))) {
+            text.match(/\+?[\d\s\-\(\)]{10,}/))) {
             // Additional validation to make sure it's likely a phone number
             if (text.length <= 25) {  // Phone numbers are usually not longer than this
               info.phone = text.trim();
@@ -711,7 +774,7 @@ async function getDetailedBusinessInfo(browser, businessUrl, timeout) {
             if (websiteMatch && websiteMatch[1]) {
               // If the element is an anchor tag, use its href
               if (element.tagName.toLowerCase() === 'a' && element.href &&
-                  !element.href.includes('google.com') && !element.href.includes('maps')) {
+                !element.href.includes('google.com') && !element.href.includes('maps')) {
                 info.website = element.href;
                 break;
               } else {
@@ -734,11 +797,11 @@ async function getDetailedBusinessInfo(browser, businessUrl, timeout) {
         for (const link of allLinks) {
           const href = link.href;
           if (href &&
-              !href.includes('google.com') &&
-              !href.includes('maps') &&
-              !href.includes('googleusercontent.com') &&
-              !href.includes('googleapis.com') &&
-              !href.includes('gstatic.com')) {
+            !href.includes('google.com') &&
+            !href.includes('maps') &&
+            !href.includes('googleusercontent.com') &&
+            !href.includes('googleapis.com') &&
+            !href.includes('gstatic.com')) {
             // Additional validation - check if this might be a website link
             // by looking for common business website patterns
             if (href.match(/\/(www\.)?[^.]+\.[^.]+/)) {
@@ -766,15 +829,15 @@ async function getDetailedBusinessInfo(browser, businessUrl, timeout) {
           if (text && text.length > 5 && text.length < 200) {
             // Check if text contains common address indicators
             if (text.match(/\d+/) &&  // Has numbers (street number)
-                (text.toLowerCase().includes('st') ||
-                 text.toLowerCase().includes('ave') ||
-                 text.toLowerCase().includes('rd') ||
-                 text.toLowerCase().includes('blvd') ||
-                 text.toLowerCase().includes('lane') ||
-                 text.toLowerCase().includes('drive') ||
-                 text.toLowerCase().includes('street') ||
-                 text.toLowerCase().includes('road') ||
-                 text.includes(','))) {  // Usually addresses have commas between city, state
+              (text.toLowerCase().includes('st') ||
+                text.toLowerCase().includes('ave') ||
+                text.toLowerCase().includes('rd') ||
+                text.toLowerCase().includes('blvd') ||
+                text.toLowerCase().includes('lane') ||
+                text.toLowerCase().includes('drive') ||
+                text.toLowerCase().includes('street') ||
+                text.toLowerCase().includes('road') ||
+                text.includes(','))) {  // Usually addresses have commas between city, state
               info.address = text.replace(/\s+/g, ' ').trim();
               break;
             }
