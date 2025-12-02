@@ -50,7 +50,8 @@
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "afterRemove": "scripts/mac-uninstall.sh"
     },
     "linux": {
       "target": "AppImage",
@@ -59,11 +60,17 @@
     "files": [
       "**/*",
       "!data/scraped_history.json",
-      "!exports/**/*"
+      "!exports/**/*",
+      "!**/*.md",
+      "!.gitignore",
+      "!.vscode/**/*",
+      "!screenshots/**/*"
     ],
     "asarUnpack": [
       "chrome/**/*"
     ],
+    "asar": true,
+    "compression": "maximum",
     "extraResources": [
       {
         "from": "chrome",
