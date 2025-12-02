@@ -1686,26 +1686,17 @@ async function startBulkScraping(resumedTimestamp = null) {
     const defaultParallelLimit = 2;
     const savedParallelLimit = parseInt(localStorage.getItem('fastModeParallelScraping')) || defaultParallelLimit;
     const parallelLimit = savedParallelLimit > 0 ? savedParallelLimit : defaultParallelLimit;
-    let completedQueries = startIndex; // Track completed queries for progress
 
-    // Process queries in batches of user-defined size
-    for (let i = startIndex; i < bulkQueries.length; i += parallelLimit) {
-      if (!isScrapingActive) {
-        // Save current index for resume
-        localStorage.setItem(resumeKey, i.toString());
-        break;
-      }
+    // Queue-based parallel processing: maintain constant concurrency
+    let currentQueryIndex = startIndex;
+    let completedQueries = 0;
+    const workers = [];
 
-      // Calculate the actual batch size (might be less for the last batch)
-      const batchSize = Math.min(parallelLimit, bulkQueries.length - i);
-
-      // Create promises for up to 2 queries in parallel
-      const batchPromises = [];
-      for (let j = 0; j < batchSize; j++) {
-        const queryIndex = i + j;
-        if (!isScrapingActive) break;
-
+    const processNextQuery = async () => {
+      while (currentQueryIndex < bulkQueries.length && isScrapingActive) {
+        const queryIndex = currentQueryIndex++;
         const location = bulkQueries[queryIndex];
+
         // Get preposition from dropdown
         let preposition = searchPrepositionBulk.value;
         if (preposition === 'custom') {
@@ -1713,182 +1704,170 @@ async function startBulkScraping(resumedTimestamp = null) {
         }
         const query = `${niche} ${preposition} ${location}`;
 
-        // Update progress to show current batch processing
-        const currentBatch = Math.floor(i / parallelLimit) + 1;
-        const totalBatches = Math.ceil(bulkQueries.length / parallelLimit);
-        progressText.textContent = `Processing batch: ${currentBatch}/${totalBatches} (${batchSize} parallel queries)`;
+        // Update progress
+        progressText.textContent = `Processing query ${completedQueries + 1}/${bulkQueries.length} (${parallelLimit} parallel)`;
         progressText.style.color = 'var(--text-primary)';
-
-        const queryPromise = window.electronAPI.startScraping({
-          niche,
-          location,
-          speed: selectedSpeed,
-          extractEmails: extractEmailsBulkCheckbox.checked,
-          extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
-          headless: headlessModeCheckbox.checked,
-          parallelLimit: parseInt(fastModeParallelScrapingInput.value),
-          emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
-          deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
-        }).then(result => ({
-          queryIndex,
-          location,
-          query,
-          result
-        }));
-
-        batchPromises.push(queryPromise);
-      }
-
-      // Wait for the current batch to complete
-      const batchResults = await Promise.all(batchPromises);
-
-      // Process results and update UI for each completed query
-      for (const batchResult of batchResults) {
-        const { queryIndex, location, query, result } = batchResult;
-
-        if (!isScrapingActive) {
-          // Save current index for resume
-          localStorage.setItem(resumeKey, queryIndex.toString());
-          break;
-        }
-
         currentQuery.textContent = queryIndex + 1;
         currentSearchQuery.textContent = query;
 
-        if (result.stopped) {
-          // Remove any data that was scraped for the current query since it was interrupted
-          if (result.data && result.data.length > 0) {
-            // Remove results from the current query from the scrapedData array
-            scrapedData = scrapedData.filter(item => item.search_location !== location);
+        try {
+          const result = await window.electronAPI.startScraping({
+            niche,
+            location,
+            speed: selectedSpeed,
+            extractEmails: extractEmailsBulkCheckbox.checked,
+            extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
+            headless: headlessModeCheckbox.checked,
+            parallelLimit: parseInt(fastModeParallelScrapingInput.value),
+            emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
+            deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
+          });
+
+          if (!isScrapingActive) {
+            localStorage.setItem(resumeKey, queryIndex.toString());
+            break;
           }
-          localStorage.setItem(resumeKey, queryIndex.toString());
-          break;
-        }
 
-        if (result.success && result.data.length > 0) {
-          const dataWithQuery = result.data.map(item => ({
-            ...item,
-            search_query: query,
-            search_location: location
-          }));
+          if (result.stopped) {
+            // Remove any data that was scraped for the current query since it was interrupted
+            if (result.data && result.data.length > 0) {
+              scrapedData = scrapedData.filter(item => item.search_location !== location);
+            }
+            localStorage.setItem(resumeKey, queryIndex.toString());
+            break;
+          }
 
-          scrapedData.push(...dataWithQuery);
-          totalResults += result.data.length;
+          if (result.success && result.data.length > 0) {
+            const dataWithQuery = result.data.map(item => ({
+              ...item,
+              search_query: query,
+              search_location: location
+            }));
 
-          // Find the processing bulk record and update its query status
+            scrapedData.push(...dataWithQuery);
+            totalResults += result.data.length;
+
+            // Find the processing bulk record and update its query status
+            const processingRecordIndex = history.searches.findIndex(item =>
+              item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+            );
+
+            if (processingRecordIndex !== -1) {
+              // Update the specific query status
+              const processingRecord = history.searches[processingRecordIndex];
+
+              if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
+                // Find the correct index by matching the location
+                let originalIndex = -1;
+                const queryStatus = processingRecord.bulkData.queryStatus;
+
+                for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+                  if (queryStatus[i] && queryStatus[i].location === location) {
+                    originalIndex = i;
+                    break;
+                  }
+                }
+
+                if (originalIndex !== -1 && queryStatus[originalIndex]) {
+                  queryStatus[originalIndex].status = 'completed';
+                  processingRecord.bulkData.completedQueries += 1;
+                }
+              }
+
+              // Update total count
+              history.searches[processingRecordIndex].count += result.data.length;
+
+              // Update the main bulk record's data with the current accumulated data
+              history.searches[processingRecordIndex].data = [...scrapedData];
+            }
+
+            // Save history after each query since we're updating the main bulk record
+            await window.electronAPI.saveHistory(history);
+
+            // Update UI immediately - note: for bulk operations, results are already in the main bulk record
+            renderResults(scrapedData);
+            updateStats();
+
+            progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
+            progressText.style.color = 'var(--success)';
+          } else {
+            // Mark as completed even if no results
+            const processingRecordIndex = history.searches.findIndex(item =>
+              item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+            );
+
+            if (processingRecordIndex !== -1) {
+              // Update the specific query status - need to find original index for resumed operations
+              const processingRecord = history.searches[processingRecordIndex];
+
+              if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
+                // Find the correct index by matching the location
+                let originalIndex = -1;
+                const queryStatus = processingRecord.bulkData.queryStatus;
+
+                for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+                  if (queryStatus[i] && queryStatus[i].location === location) {
+                    originalIndex = i;
+                    break;
+                  }
+                }
+
+                if (originalIndex !== -1 && queryStatus[originalIndex]) {
+                  // Update the status for the specific location
+                  queryStatus[originalIndex].status = 'completed';
+                  processingRecord.bulkData.completedQueries += 1;
+                }
+              }
+            }
+
+            progressText.textContent = `⚠ ${query}: No results found`;
+            progressText.style.color = 'var(--warning)';
+          }
+
+          // Update fast mode progress counter and bar - calculate based on actual completed queries
+          let actualCompletedCount = 0;
           const processingRecordIndex = history.searches.findIndex(item =>
             item.timestamp === timestamp && item.status === 'processing' && item.isBulk
           );
 
-          if (processingRecordIndex !== -1) {
-            // Update the specific query status - need to find original index for resumed operations
-            const processingRecord = history.searches[processingRecordIndex];
-
-            if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
-              // Find the correct index by matching the location
-              let originalIndex = -1;
-              const queryStatus = processingRecord.bulkData.queryStatus;
-
-              for (let i = 0; i < Object.keys(queryStatus).length; i++) {
-                if (queryStatus[i] && queryStatus[i].location === location) {
-                  originalIndex = i;
-                  break;
-                }
-              }
-
-              if (originalIndex !== -1 && queryStatus[originalIndex]) {
-                // Update the status for the specific location
-                queryStatus[originalIndex].status = 'completed';
-                processingRecord.bulkData.completedQueries += 1;
-              }
-            }
-
-            // Update total count
-            history.searches[processingRecordIndex].count += result.data.length;
-
-            // Update the main bulk record's data with the current accumulated data
-            history.searches[processingRecordIndex].data = [...scrapedData];
+          if (processingRecordIndex !== -1 && history.searches[processingRecordIndex].bulkData) {
+            actualCompletedCount = history.searches[processingRecordIndex].bulkData.completedQueries;
           }
 
-          // Save history after each query since we're updating the main bulk record
-          await window.electronAPI.saveHistory(history);
+          // Calculate progress percentage using the new logic: floor((completed/total) * 100)
+          const progressPercent = Math.floor((actualCompletedCount / bulkQueries.length) * 100);
 
-          // Update UI immediately - note: for bulk operations, results are already in the main bulk record
-          renderResults(scrapedData);
-          updateStats();
+          // Update fast mode progress elements using the shared progress section
+          document.getElementById('fastCompletedQueries').textContent = actualCompletedCount;
+          document.getElementById('progressFill').style.width = `${progressPercent}%`;
+          document.getElementById('progressPercent').textContent = `${progressPercent}%`;
 
-          progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
-          progressText.style.color = 'var(--success)';
-        } else {
-          // Mark as completed even if no results
-          const processingRecordIndex = history.searches.findIndex(item =>
-            item.timestamp === timestamp && item.status === 'processing' && item.isBulk
-          );
-
-          if (processingRecordIndex !== -1) {
-            // Update the specific query status - need to find original index for resumed operations
-            const processingRecord = history.searches[processingRecordIndex];
-
-            if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
-              // Find the correct index by matching the location
-              let originalIndex = -1;
-              const queryStatus = processingRecord.bulkData.queryStatus;
-
-              for (let i = 0; i < Object.keys(queryStatus).length; i++) {
-                if (queryStatus[i] && queryStatus[i].location === location) {
-                  originalIndex = i;
-                  break;
-                }
-              }
-
-              if (originalIndex !== -1 && queryStatus[originalIndex]) {
-                // Update the status for the specific location
-                queryStatus[originalIndex].status = 'completed';
-                processingRecord.bulkData.completedQueries += 1;
-              }
-            }
-          }
-
-          progressText.textContent = `⚠ ${query}: No results found`;
-          progressText.style.color = 'var(--warning)';
-        }
-
-        // Update fast mode progress counter and bar - calculate based on actual completed queries
-        let actualCompletedCount = 0;
-        const processingRecordIndex = history.searches.findIndex(item =>
-          item.timestamp === timestamp && item.status === 'processing' && item.isBulk
-        );
-
-        if (processingRecordIndex !== -1 && history.searches[processingRecordIndex].bulkData) {
-          actualCompletedCount = history.searches[processingRecordIndex].bulkData.completedQueries;
-        }
-
-        // Calculate progress percentage using the new logic: floor((completed/total) * 100)
-        const progressPercent = Math.floor((actualCompletedCount / bulkQueries.length) * 100);
-
-        // Update fast mode progress elements using the shared progress section
-        document.getElementById('fastCompletedQueries').textContent = actualCompletedCount;
-        document.getElementById('progressFill').style.width = `${progressPercent}%`;
-        document.getElementById('progressPercent').textContent = `${progressPercent}%`;
-
-        // Update the text to show current status
-        document.getElementById('progressText').textContent = `Query completed - ${actualCompletedCount}/${bulkQueries.length} done (${progressPercent}%)`;
-        document.getElementById('progressText').style.color = 'var(--success)';
-
-        if (progressPercent === 100 && progressPercent !== 0) {
-          document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
+          // Update the text to show current status
+          document.getElementById('progressText').textContent = `Query completed - ${actualCompletedCount}/${bulkQueries.length} done (${progressPercent}%)`;
           document.getElementById('progressText').style.color = 'var(--success)';
+
+          if (progressPercent === 100 && progressPercent !== 0) {
+            document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
+            document.getElementById('progressText').style.color = 'var(--success)';
+          }
+
+          // Save progress
+          localStorage.setItem(resumeKey, (queryIndex + 1).toString());
+        } catch (error) {
+          console.error('Error processing query:', error);
         }
 
-        // Save progress
-        localStorage.setItem(resumeKey, (queryIndex + 1).toString());
+        completedQueries++;
       }
+    };
 
-      // Small delay between batches to avoid overwhelming
-      if (isScrapingActive) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    // Start concurrent workers
+    for (let i = 0; i < parallelLimit; i++) {
+      workers.push(processNextQuery());
     }
+
+    // Wait for all workers to complete
+    await Promise.all(workers);
   } else {
     // For normal mode, show regular progress and hide fast mode progress
     document.getElementById('bulkProgress').style.display = 'block';
