@@ -1290,7 +1290,24 @@ function showQueryStatusModal(title, content, timestamp) {
     });
 
     if (filteredData.length === 0) {
-      alert('No matching data found for selected queries.');
+      // Check if the selected locations were actually scraped
+      const scrapedLocations = selectedLocations.filter(loc => {
+        const queryStatus = bulkRecord.bulkData?.queryStatus;
+        if (!queryStatus) return false;
+
+        for (const key in queryStatus) {
+          if (queryStatus[key].location === loc && queryStatus[key].status === 'completed') {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (scrapedLocations.length > 0) {
+        alert(`Selected locations were scraped but returned no results:\n${scrapedLocations.join(', ')}`);
+      } else {
+        alert('No matching data found for selected queries.');
+      }
       return;
     }
 
