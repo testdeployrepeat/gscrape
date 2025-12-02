@@ -359,6 +359,20 @@
               </div>
             </div>
             <div class="form-group">
+              <label class="switch-label">
+                <span>Fast Mode Email Scraping</span>
+                <div class="number-input-control">
+                  <input type="number" id="fastModeEmailScraping" min="1" max="10" value="5">
+                  <button type="button" id="fastModeEmailScrapingDefault" class="btn-xs">Default</button>
+                </div>
+              </label>
+              <small>Adjust the number of websites to process simultaneously when extracting emails.</small>
+              <div id="fastModeEmailWarning" class="warning-message"
+                style="display: none; color: #f59e0b; margin-top: 5px; font-size: 13px;">
+                ⚠️ Warning: Setting this too high may cause rate limiting or performance issues
+              </div>
+            </div>
+            <div class="form-group">
               <label class="switch-label" style="opacity: 0.6; cursor: not-allowed;">
                 <span>Use Proxies (Coming Soon)</span>
                 <label class="switch">
@@ -527,8 +541,22 @@
                   </label>
                 </label>
                 <small
-                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Email
-                  extraction will be significantly slower</small>
+                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Opens
+                  each website link to extract emails (slower)</small>
+              </div>
+
+              <div class="form-group">
+                <label class="switch-label">
+                  <span>Detailed Info Extraction</span>
+                  <label class="switch">
+                    <input type="checkbox" id="extractDetailedInfo">
+                    <span class="slider"></span>
+                  </label>
+                </label>
+                <small
+                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Google
+                  Maps hide phone numbers for some search results, this option will attempt to open each card and
+                  extract phone numbers and website links better (slower)</small>
               </div>
             </div>
 
@@ -587,6 +615,19 @@
                 <small
                   style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Email
                   extraction will be significantly slower</small>
+              </div>
+
+              <div class="form-group">
+                <label class="switch-label">
+                  <span>Detailed Info Extraction</span>
+                  <label class="switch">
+                    <input type="checkbox" id="extractDetailedInfoBulk">
+                    <span class="slider"></span>
+                  </label>
+                </label>
+                <small
+                  style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Visits
+                  each business page for more complete information (slower)</small>
               </div>
 
               <div class="bulk-preview" id="bulkPreview" style="display: none;">

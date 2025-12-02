@@ -30,6 +30,8 @@ const searchPrepositionBulk = document.getElementById('searchPrepositionBulk');
 const customPrepositionBulk = document.getElementById('customPrepositionBulk');
 const extractEmailsCheckbox = document.getElementById('extractEmails');
 const extractEmailsBulkCheckbox = document.getElementById('extractEmailsBulk');
+const extractDetailedInfoCheckbox = document.getElementById('extractDetailedInfo');
+const extractDetailedInfoBulkCheckbox = document.getElementById('extractDetailedInfoBulk');
 const headerStartBtn = document.getElementById('headerStartBtn');
 const exportBtn = document.getElementById('exportBtn');
 const clearResultsBtn = document.getElementById('clearResultsBtn');
@@ -63,6 +65,9 @@ const developerModeCheckbox = document.getElementById('developerMode');
 const fastModeParallelScrapingInput = document.getElementById('fastModeParallelScraping');
 const fastModeParallelWarning = document.getElementById('fastModeParallelWarning');
 const fastModeParallelScrapingDefaultBtn = document.getElementById('fastModeParallelScrapingDefault');
+const fastModeEmailScrapingInput = document.getElementById('fastModeEmailScraping');
+const fastModeEmailWarning = document.getElementById('fastModeEmailWarning');
+const fastModeEmailScrapingDefaultBtn = document.getElementById('fastModeEmailScrapingDefault');
 
 // Track which delete operation is being performed
 let currentDeleteOperation = 'all'; // 'all' for all selected items, 'bulk' for only bulk sessions
@@ -260,6 +265,45 @@ fastModeParallelScrapingDefaultBtn.addEventListener('click', () => {
   fastModeParallelWarning.style.display = 'none';
 });
 
+// Fast Mode Email Scraping setting
+fastModeEmailScrapingInput.addEventListener('input', (e) => {
+  const value = parseInt(e.target.value);
+  if (value > 6) {
+    fastModeEmailWarning.style.display = 'block';
+  } else {
+    fastModeEmailWarning.style.display = 'none';
+  }
+
+  // Also validate that value is within range
+  if (value < 1) {
+    e.target.value = 1;
+  } else if (value > 10) {
+    // Allow up to 10 but show warning for values above 6
+    fastModeEmailWarning.style.display = 'block';
+  }
+
+  localStorage.setItem('fastModeEmailScraping', e.target.value);
+});
+
+// Initialize the warning display based on saved value
+fastModeEmailScrapingInput.addEventListener('change', (e) => {
+  const value = parseInt(e.target.value);
+  if (value > 6) {
+    fastModeEmailWarning.style.display = 'block';
+  } else {
+    fastModeEmailWarning.style.display = 'none';
+  }
+});
+
+// Fast Mode Email Scraping Default Button
+fastModeEmailScrapingDefaultBtn.addEventListener('click', () => {
+  fastModeEmailScrapingInput.value = '5'; // Set to default value
+  localStorage.setItem('fastModeEmailScraping', '5');
+
+  // Update warning display after setting default
+  fastModeEmailWarning.style.display = 'none';
+});
+
 document.getElementById('closeSettingsBtn').addEventListener('click', () => {
   document.getElementById('settingsModal').classList.remove('show');
 });
@@ -355,6 +399,14 @@ headlessModeCheckbox.addEventListener('change', (e) => {
 
 defaultExportFormatSelect.addEventListener('change', (e) => {
   localStorage.setItem('defaultExportFormat', e.target.value);
+});
+
+extractDetailedInfoCheckbox.addEventListener('change', (e) => {
+  localStorage.setItem('detailedInfoMode', e.target.checked);
+});
+
+extractDetailedInfoBulkCheckbox.addEventListener('change', (e) => {
+  localStorage.setItem('detailedInfoMode', e.target.checked);
 });
 
 
@@ -1404,7 +1456,9 @@ async function startSingleScraping() {
     location,
     speed: speedSelect.value,
     extractEmails: extractEmailsCheckbox.checked,
-    headless: headlessModeCheckbox.checked
+    extractDetailedInfo: document.getElementById('extractDetailedInfo') ? document.getElementById('extractDetailedInfo').checked : false,
+    headless: headlessModeCheckbox.checked,
+    emailScrapingLimit: parseInt(fastModeEmailScrapingInput.value)
   };
 
   // Start timer
@@ -1669,7 +1723,9 @@ async function startBulkScraping(resumedTimestamp = null) {
           location,
           speed: selectedSpeed,
           extractEmails: extractEmailsBulkCheckbox.checked,
-          headless: headlessModeCheckbox.checked
+          extractDetailedInfo: document.getElementById('extractDetailedInfoBulk') ? document.getElementById('extractDetailedInfoBulk').checked : false,
+          headless: headlessModeCheckbox.checked,
+          emailScrapingLimit: parseInt(fastModeEmailScrapingInput.value)
         }).then(result => ({
           queryIndex,
           location,
@@ -1864,7 +1920,9 @@ async function startBulkScraping(resumedTimestamp = null) {
         location,
         speed: selectedSpeed,
         extractEmails: extractEmailsBulkCheckbox.checked,
-        headless: headlessModeCheckbox.checked
+        extractDetailedInfo: document.getElementById('extractDetailedInfoBulk') ? document.getElementById('extractDetailedInfoBulk').checked : false,
+        headless: headlessModeCheckbox.checked,
+        emailScrapingLimit: parseInt(fastModeEmailScrapingInput.value)
       };
 
       try {
@@ -2819,7 +2877,14 @@ async function initializeSettings() {
   defaultExportFormatSelect.value = exportFormat;
   exportFormatSelect.value = exportFormat;
 
-
+  // Initialize detailed info extraction settings
+  const detailedInfoMode = localStorage.getItem('detailedInfoMode') === 'true';
+  if (extractDetailedInfoCheckbox) {
+    extractDetailedInfoCheckbox.checked = detailedInfoMode;
+  }
+  if (extractDetailedInfoBulkCheckbox) {
+    extractDetailedInfoBulkCheckbox.checked = detailedInfoMode;
+  }
 
 
   // Initialize Developer Mode
@@ -2838,6 +2903,18 @@ async function initializeSettings() {
     fastModeParallelWarning.style.display = 'block';
   } else {
     fastModeParallelWarning.style.display = 'none';
+  }
+
+  // Initialize Fast Mode Email Scraping
+  const fastModeEmailValue = localStorage.getItem('fastModeEmailScraping') || '5';
+  fastModeEmailScrapingInput.value = fastModeEmailValue;
+
+  // Show warning if the saved value is above 6
+  const emailNumericValue = parseInt(fastModeEmailValue);
+  if (emailNumericValue > 6) {
+    fastModeEmailWarning.style.display = 'block';
+  } else {
+    fastModeEmailWarning.style.display = 'none';
   }
 
   // Initialize Webhook URL

@@ -1836,8 +1836,7 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
   box-shadow: var(--shadow-md);
 }
 
-/* Progress card special styling */
-.progress-card {}
+/* Progress card special styling - inherits from .card */
 
 .progress-card.active {
   box-shadow: var(--shadow-glow);
@@ -1981,4 +1980,108 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
 
 .queries-list::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+/* Settings Groups */
+.settings-group {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-group:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-group h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Number Input Control */
+.number-input-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.number-input-control input[type="number"] {
+  flex: 0 0 80px;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: all var(--transition);
+  text-align: center;
+}
+
+.number-input-control input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(109, 74, 255, 0.2);
+}
+
+/* Remove spinner arrows from number inputs */
+.number-input-control input[type="number"]::-webkit-inner-spin-button,
+.number-input-control input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.number-input-control input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Settings Form Group Improvements */
+.settings-group .form-group {
+  margin-bottom: 20px;
+}
+
+.settings-group .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.settings-group .form-group small {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Switch Label in Settings */
+.settings-group .switch-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.settings-group .switch-label>span {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+/* Warning Message */
+.warning-message {
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.4;
 }
