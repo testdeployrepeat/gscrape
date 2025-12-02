@@ -2,6 +2,7 @@ let scrapedData = [];
 let history = { searches: [] };
 let bulkQueries = [];
 let isBulkMode = false;
+let isBulkFastMode = false; // Track if we're in bulk fast mode to handle progress differently
 let isScrapingActive = false;
 let currentBulkOperation = null; // Track current bulk operation
 let startTime = null;
@@ -68,6 +69,7 @@ const fastModeEmailScrapingInput = document.getElementById('fastModeEmailScrapin
 const fastModeEmailWarning = document.getElementById('fastModeEmailWarning');
 const fastModeEmailScrapingDefaultBtn = document.getElementById('fastModeEmailScrapingDefault');
 const deepEmailExtractionCheckbox = document.getElementById('deepEmailExtraction');
+const deleteAllDataBtn = document.getElementById('deleteAllDataBtn');
 
 // Track which delete operation is being performed
 let currentDeleteOperation = 'all'; // 'all' for all selected items, 'bulk' for only bulk sessions
@@ -408,6 +410,49 @@ detailedInfoExtractionCheckbox.addEventListener('change', (e) => {
 deepEmailExtractionCheckbox.addEventListener('change', (e) => {
   localStorage.setItem('deepEmailExtraction', e.target.checked);
 });
+
+// Delete All Data button listener
+if (deleteAllDataBtn) {
+  deleteAllDataBtn.addEventListener('click', async () => {
+    const confirmed = confirm(
+      '⚠️ WARNING: This will permanently delete ALL scraped data, history, and bulk sessions.\n\n' +
+      'This action CANNOT be undone.\n\n' +
+      'Are you absolutely sure you want to continue?'
+    );
+
+    if (confirmed) {
+      // Double confirmation
+      const doubleConfirmed = confirm(
+        'This is your last chance!\n\n' +
+        'Click OK to permanently delete everything, or Cancel to keep your data.'
+      );
+
+      if (doubleConfirmed) {
+        // Clear all history
+        history.searches = [];
+        await window.electronAPI.saveHistory(history);
+
+        // Clear all localStorage resume keys
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('bulk_resume_')) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+
+        // Clear UI
+        scrapedData = [];
+        renderResults([]);
+        updateStats();
+        renderHistory();
+
+        alert('✓ All data has been deleted successfully.');
+      }
+    }
+  });
+}
 
 
 
@@ -1445,6 +1490,8 @@ async function startSingleScraping() {
   progressSection.classList.add('active');
   bulkProgress.style.display = 'none';
 
+  // Reset bulk fast mode flag (in case we're coming from bulk mode)
+  isBulkFastMode = false;
 
   // Clear previous results
   scrapedData = [];
@@ -1472,6 +1519,7 @@ async function startSingleScraping() {
 
   // Reset header button to Start
   isScrapingActive = false;
+  isBulkFastMode = false;
   headerStartBtn.innerHTML = `
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
       <path d="M8 5v14l11-7z" />
@@ -1573,35 +1621,45 @@ async function startBulkScraping(resumedTimestamp = null) {
     timestamp = new Date().toISOString();
   }
 
-  const bulkQueryLabel = `Bulk: ${niche} (${bulkQueries.length} locations)`;
+  // Track if operation completed successfully (needs to be in outer scope)
+  let bulkOperationCompleted = false;
+
+  // Create resume key for this bulk operation
+  const resumeKey = `bulk_resume_${niche}_${bulkQueries.join('_').substring(0, 50)}`;
+
+  // Check for existing resume data
+  const savedIndex = localStorage.getItem(resumeKey);
+  const startIndex = savedIndex ? parseInt(savedIndex) : 0;
+
+  // Create bulk history record
+  const bulkHistoryTimestamp = new Date().toISOString(); // Use a different variable name to avoid conflict
+  const queryStatus = {};
+  bulkQueries.forEach((location, index) => {
+    queryStatus[index] = {
+      location,
+      status: index < startIndex ? 'completed' : 'pending'
+    };
+  });
 
   // Only create a new processing record if this is not a resumed operation
   if (!resumedTimestamp) {
-    // Create initial query status map
-    const initialQueryStatus = {};
-    bulkQueries.forEach((location, index) => {
-      initialQueryStatus[index] = { location, status: 'pending' };
-    });
-
-    // Add processing record to history immediately
-    const processingRecord = {
-      query: bulkQueryLabel,
+    history.searches.push({
+      query: `Bulk: ${niche}`,
       count: 0,
-      timestamp: timestamp,
-      data: [],
+      timestamp: bulkHistoryTimestamp,
       status: 'processing',
       isBulk: true,
+      data: [],
       bulkData: {
-        niche: niche,
+        niche,
+        queries: bulkQueries,
         totalQueries: bulkQueries.length,
-        completedQueries: 0,
-        queries: [...bulkQueries], // Store the original queries
-        queryStatus: initialQueryStatus, // Track status of each query
+        completedQueries: startIndex,
+        queryStatus,
+        resumeKey,  // Store the resume key for easy cleanup
         speed: selectedSpeed
       }
-    };
-
-    history.searches.push(processingRecord);
+    });
   } else {
     // For resumed operations, the record already exists, we just need to ensure it has the right status
     const existingRecordIndex = history.searches.findIndex(s => s.timestamp === resumedTimestamp);
@@ -1654,7 +1712,6 @@ async function startBulkScraping(resumedTimestamp = null) {
   let totalResults = 0;
 
   // Get last processed index from localStorage for resume functionality
-  const resumeKey = `bulk_resume_${niche}_${bulkQueries.join('_').substring(0, 50)}`;
   const lastProcessedIndex = parseInt(localStorage.getItem(resumeKey) || '0');
 
   if (lastProcessedIndex > 0) {
@@ -1664,18 +1721,20 @@ async function startBulkScraping(resumedTimestamp = null) {
     }
   }
 
-  const startIndex = lastProcessedIndex > 0 ? lastProcessedIndex : 0;
+  // Use startIndex that was already calculated above (line 1582)
 
   // Start timer
   startTimer();
   const queryStartTimes = [];
   // Check if running in fast mode for parallel processing
   if (selectedSpeed === 'fast' || selectedSpeed === 'ultra-fast') {
-    // Show fast mode content in the existing progress section
+    // Show fast mode progress and hide regular bulk progress
     document.getElementById('bulkProgress').style.display = 'none';
     document.getElementById('fastBulkProgress').style.display = 'block';
+    document.getElementById('progressFill').style.width = '0%';
 
-    // Set up fast mode progress
+    // Set flag to prevent per-query progress updates
+    isBulkFastMode = true;
     document.getElementById('fastTotalQueries').textContent = bulkQueries.length;
     document.getElementById('fastCompletedQueries').textContent = startIndex;
     document.getElementById('progressText').textContent = 'Starting fast bulk scraping...';
@@ -1868,6 +1927,39 @@ async function startBulkScraping(resumedTimestamp = null) {
 
     // Wait for all workers to complete
     await Promise.all(workers);
+
+
+    // After all workers complete, check if operation finished successfully
+    if (isScrapingActive && currentQueryIndex >= bulkQueries.length) {
+      // All queries completed successfully
+      const processingRecordIndex = history.searches.findIndex(item =>
+        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+      );
+
+      if (processingRecordIndex !== -1) {
+        const processingRecord = history.searches[processingRecordIndex];
+
+        // Mark as complete
+        processingRecord.status = 'complete';
+        processingRecord.endTime = Date.now();
+        processingRecord.query = `Bulk: ${niche} (${bulkQueries.length}/${bulkQueries.length} completed)`;
+
+        // Update final progress display
+        document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses from ${bulkQueries.length} locations`;
+        document.getElementById('progressText').style.color = 'var(--success)';
+        document.getElementById('progressFill').style.width = '100%';
+        document.getElementById('progressPercent').textContent = '100%';
+        document.getElementById('fastCompletedQueries').textContent = bulkQueries.length;
+
+        // Save final history
+        await window.electronAPI.saveHistory(history);
+
+        bulkOperationCompleted = true;
+      }
+
+      // Clear resume data
+      localStorage.removeItem(resumeKey);
+    }
   } else {
     // For normal mode, show regular progress and hide fast mode progress
     document.getElementById('bulkProgress').style.display = 'block';
@@ -2049,6 +2141,12 @@ async function startBulkScraping(resumedTimestamp = null) {
 
   progressFill.style.width = '100%';
 
+  // Skip creating paused session if operation completed successfully
+  if (typeof bulkOperationCompleted !== 'undefined' && bulkOperationCompleted) {
+    // Operation completed successfully, cleanup already done
+    return;
+  }
+
   if (scrapedData.length > 0) {
     if (wasCancelled && currentIndex < bulkQueries.length) {
       // Find and update the existing processing record to paused
@@ -2220,6 +2318,7 @@ async function stopScraping() {
 
   if (confirmed) {
     isScrapingActive = false;
+    isBulkFastMode = false;
 
     // Update header button to show stopping state
     headerStartBtn.innerHTML = `
@@ -2322,43 +2421,46 @@ function updateProgress(progress) {
   }
 
   // Update progress bar
-  if (current && total) {
-    const percentage = (current / total) * 100;
-    progressFill.style.width = `${percentage}%`;
-    if (progressPercent) progressPercent.textContent = `${Math.round(percentage)}%`;
-  } else {
-    switch (status) {
-      case 'starting':
-        progressFill.style.width = '10%';
-        if (progressPercent) progressPercent.textContent = '10%';
-        break;
-      case 'navigating':
-        progressFill.style.width = '20%';
-        if (progressPercent) progressPercent.textContent = '20%';
-        break;
-      case 'scrolling':
-        progressFill.style.width = '40%';
-        if (progressPercent) progressPercent.textContent = '40%';
-        break;
-      case 'extracting':
-        progressFill.style.width = '60%';
-        if (progressPercent) progressPercent.textContent = '60%';
-        break;
-      case 'processing':
-        progressFill.style.width = '80%';
-        if (progressPercent) progressPercent.textContent = '80%';
-        break;
-      case 'complete':
-        progressFill.style.width = '100%';
-        if (progressPercent) progressPercent.textContent = '100%';
-        progressSection.classList.remove('active');
-        break;
-      case 'error':
-        progressFill.style.width = '100%';
-        progressFill.style.backgroundColor = 'var(--error)';
-        if (progressPercent) progressPercent.textContent = '100%';
-        progressSection.classList.remove('active');
-        break;
+  // Skip progress bar updates in bulk fast mode - overall progress is handled separately
+  if (!isBulkFastMode) {
+    if (current && total) {
+      const percentage = (current / total) * 100;
+      progressFill.style.width = `${percentage}%`;
+      if (progressPercent) progressPercent.textContent = `${Math.round(percentage)}%`;
+    } else {
+      switch (status) {
+        case 'starting':
+          progressFill.style.width = '10%';
+          if (progressPercent) progressPercent.textContent = '10%';
+          break;
+        case 'navigating':
+          progressFill.style.width = '20%';
+          if (progressPercent) progressPercent.textContent = '20%';
+          break;
+        case 'scrolling':
+          progressFill.style.width = '40%';
+          if (progressPercent) progressPercent.textContent = '40%';
+          break;
+        case 'extracting':
+          progressFill.style.width = '60%';
+          if (progressPercent) progressPercent.textContent = '60%';
+          break;
+        case 'processing':
+          progressFill.style.width = '80%';
+          if (progressPercent) progressPercent.textContent = '80%';
+          break;
+        case 'complete':
+          progressFill.style.width = '100%';
+          if (progressPercent) progressPercent.textContent = '100%';
+          progressSection.classList.remove('active');
+          break;
+        case 'error':
+          progressFill.style.width = '100%';
+          progressFill.style.backgroundColor = 'var(--error)';
+          if (progressPercent) progressPercent.textContent = '100%';
+          progressSection.classList.remove('active');
+          break;
+      }
     }
   }
 }
@@ -3437,29 +3539,11 @@ async function deleteSelectedBulkRecords() {
   history.searches = history.searches.filter(s => !selectedBulkItems.includes(s.timestamp));
 
   // Also remove associated bulk resume keys from localStorage
-  const keysToRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith('bulk_resume_')) {
-      // Check if this key is related to any of the records being deleted
-      for (const record of recordsToBeDeleted) {
-        if (record.bulkData && record.bulkData.niche && Array.isArray(record.bulkData.queries)) {
-          // Reconstruct the expected resume key based on the record's niche and queries
-          const expectedResumeKey = `bulk_resume_${record.bulkData.niche}_${record.bulkData.queries.join('_').substring(0, 50)}`;
-
-          // Since the queries part might be truncated, match by the beginning
-          if (key.startsWith(expectedResumeKey) ||
-            (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
-              record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
-            keysToRemove.push(key);
-            break; // Found a match, no need to check other records for this key
-          }
-        }
-      }
+  for (const record of recordsToBeDeleted) {
+    if (record.isBulk && record.bulkData && record.bulkData.resumeKey) {
+      localStorage.removeItem(record.bulkData.resumeKey);
     }
   }
-
-  keysToRemove.forEach(key => localStorage.removeItem(key));
 
   // Save updated history
   await window.electronAPI.saveHistory(history);
