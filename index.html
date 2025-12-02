@@ -64,8 +64,8 @@
         <div class="modal-body">
           <p style="text-align: center; margin-bottom: 24px; color: var(--text-secondary);">
             If you find this tool helpful, consider supporting its development!
-            <br>You can also hire me as a Dev | ghl |
-            n8n | Make.com | Vibe Coding specialist :D
+            <br>
+            <br>n8n | ghl | make.com | dev | vibecoder
           </p>
           <div class="support-options">
             <a href="https://paypal.me/josedeguia" target="_blank" class="support-link paypal">
@@ -345,13 +345,11 @@
               <small>Enable F12 key to open developer tools (off by default)</small>
             </div>
             <div class="form-group">
-              <label class="switch-label">
-                <span>Fast Mode Parallel Scraping on Bulk Mode</span>
-                <div class="number-input-control">
-                  <input type="number" id="fastModeParallelScraping" min="1" max="10" value="2">
-                  <button type="button" id="fastModeParallelScrapingDefault" class="btn-xs">Default</button>
-                </div>
-              </label>
+              <label for="fastModeParallelScraping">Fast Mode Parallel Scraping on Bulk Mode</label>
+              <div class="number-input-control">
+                <input type="number" id="fastModeParallelScraping" min="1" max="10" value="2">
+                <button type="button" id="fastModeParallelScrapingDefault" class="btn-xs">Default</button>
+              </div>
               <small>Adjust the number of queries to process simultaneously in fast mode.</small>
               <div id="fastModeParallelWarning" class="warning-message"
                 style="display: none; color: #f59e0b; margin-top: 5px; font-size: 13px;">
@@ -359,17 +357,15 @@
               </div>
             </div>
             <div class="form-group">
-              <label class="switch-label">
-                <span>Fast Mode Email Scraping</span>
-                <div class="number-input-control">
-                  <input type="number" id="fastModeEmailScraping" min="1" max="10" value="5">
-                  <button type="button" id="fastModeEmailScrapingDefault" class="btn-xs">Default</button>
-                </div>
-              </label>
+              <label for="fastModeEmailScraping">Fast Mode Email Scraping</label>
+              <div class="number-input-control">
+                <input type="number" id="fastModeEmailScraping" min="1" max="10" value="10">
+                <button type="button" id="fastModeEmailScrapingDefault" class="btn-xs">Default</button>
+              </div>
               <small>Adjust the number of websites to process simultaneously when extracting emails.</small>
               <div id="fastModeEmailWarning" class="warning-message"
                 style="display: none; color: #f59e0b; margin-top: 5px; font-size: 13px;">
-                ⚠️ Warning: Setting this too high may cause rate limiting or performance issues
+                ⚠️ Warning: Setting fast mode options too high may cause rate limiting or performance issues
               </div>
             </div>
             <div class="form-group">

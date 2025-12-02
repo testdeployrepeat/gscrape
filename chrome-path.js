@@ -44,7 +44,7 @@ function findChromeExecutable(dir) {
         if (file.isDirectory()) {
             const found = findChromeExecutable(fullPath);
             if (found) return found;
-        } else if (file.name === 'chrome.exe' || file.name === 'chrome') {
+        } else if (file.name === 'chrome.exe' || file.name === 'chrome' || file.name === 'Google Chrome for Testing') {
             return fullPath;
         }
     }

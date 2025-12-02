@@ -437,19 +437,24 @@ input:checked+.slider:before {
 }
 
 .btn-xs {
-  padding: 4px 8px;
-  font-size: 11px;
-  background: var(--bg-input);
-  color: var(--text-primary);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
 .btn-xs:hover {
-  background: var(--bg-hover);
+  background: var(--accent-primary);
+  color: white;
   border-color: var(--accent-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-sm {
@@ -1635,7 +1640,8 @@ button.support-link {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: white;
+  color: #ffffff;
+  /* Always white for contrast against the accent color background */
   font-size: 12px;
   font-weight: bold;
 }
@@ -1984,8 +1990,8 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
 
 /* Settings Groups */
 .settings-group {
-  margin-bottom: 32px;
-  padding-bottom: 24px;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -1996,12 +2002,13 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
 }
 
 .settings-group h3 {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
+  opacity: 0.9;
 }
 
 /* Number Input Control */
@@ -2009,6 +2016,7 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 8px;
 }
 
 .number-input-control input[type="number"] {
@@ -2042,9 +2050,9 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
   appearance: textfield;
 }
 
-/* Settings Form Group Improvements */
+/* Form groups within settings need more spacing */
 .settings-group .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .settings-group .form-group:last-child {
@@ -2074,6 +2082,16 @@ input[type="number"]#fastModeParallelScraping::-webkit-outer-spin-button {
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.4;
+}
+
+/* Regular labels in settings should match switch-label styling */
+.settings-group label:not(.switch-label):not(.switch) {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 8px;
 }
 
 /* Warning Message */

@@ -297,8 +297,8 @@ fastModeEmailScrapingInput.addEventListener('change', (e) => {
 
 // Fast Mode Email Scraping Default Button
 fastModeEmailScrapingDefaultBtn.addEventListener('click', () => {
-  fastModeEmailScrapingInput.value = '5'; // Set to default value
-  localStorage.setItem('fastModeEmailScraping', '5');
+  fastModeEmailScrapingInput.value = '10'; // Set to default value
+  localStorage.setItem('fastModeEmailScraping', '10');
 
   // Update warning display after setting default
   fastModeEmailWarning.style.display = 'none';
@@ -2906,7 +2906,7 @@ async function initializeSettings() {
   }
 
   // Initialize Fast Mode Email Scraping
-  const fastModeEmailValue = localStorage.getItem('fastModeEmailScraping') || '5';
+  const fastModeEmailValue = localStorage.getItem('fastModeEmailScraping') || '10';
   fastModeEmailScrapingInput.value = fastModeEmailValue;
 
   // Show warning if the saved value is above 6
