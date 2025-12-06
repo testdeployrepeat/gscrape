@@ -82,9 +82,10 @@ async function scrollResultsFeed(page, speed) {
   let currentDelay = 300; // Start with fast 300ms delay
   const maxDelay = 2500; // Cap at 2.5 seconds for slow connections
   const delayMultiplier = 1.5; // Exponential backoff factor
-  const maxNoChangeAttempts = 6; // Require 6 consecutive no-change cycles before stopping
+  const maxNoChangeAttempts = 10; // Increased: require 10 consecutive no-change cycles before stopping
   let totalScrollAttempts = 0;
-  const maxTotalAttempts = 50; // Safety limit to prevent infinite loops
+  const maxTotalAttempts = 100; // Increased safety limit to allow more scrolling
+  let hasSeenEndText = false; // Track if we've seen the "end of list" text
 
   while (!shouldStop && totalScrollAttempts < maxTotalAttempts) {
     totalScrollAttempts++;
@@ -95,15 +96,18 @@ async function scrollResultsFeed(page, speed) {
       if (!element) return { error: 'Element not found' };
 
       const items = document.querySelectorAll('div[role="feed"] > div > div[jsaction] a[href*="/maps/place/"]').length;
-      const endText = element.innerText || '';
+      const fullText = element.innerText || '';
       const previousScrollTop = element.scrollTop;
 
-      // Scroll to bottom
+      // Scroll to bottom aggressively
       element.scrollTop = element.scrollHeight;
+
+      // Check for end-of-list indicator (primary stop condition)
+      const hasEndText = fullText.includes("You've reached the end of the list");
 
       return {
         items,
-        endText,
+        hasEndText,
         scrollChanged: element.scrollTop !== previousScrollTop,
         isAtBottom: element.scrollHeight - element.scrollTop <= element.clientHeight + 100
       };
@@ -111,9 +115,10 @@ async function scrollResultsFeed(page, speed) {
 
     if (result.error) break;
 
-    // Check for "end of list" text immediately (most reliable signal)
-    if (result.endText.includes("You've reached the end")) {
-      console.log('Scrolling stopped - end of list detected.');
+    // PRIMARY STOP CONDITION: "You've reached the end of the list." text
+    if (result.hasEndText) {
+      console.log(`Scrolling stopped - end of list detected. Total: ${result.items} items.`);
+      hasSeenEndText = true;
       break;
     }
 
@@ -128,13 +133,13 @@ async function scrollResultsFeed(page, speed) {
       // No new items - might be still loading or at end
       noChangeCount++;
 
-      // If we're stuck at a low count (< 20), be more patient - likely slow load
-      const isLowCount = lastItemsCount < 20;
-      const effectiveMaxAttempts = isLowCount ? maxNoChangeAttempts + 3 : maxNoChangeAttempts;
+      // Be more patient when we haven't seen the end text yet
+      // Only use no-change as fallback safety net after many attempts
+      const effectiveMaxAttempts = maxNoChangeAttempts;
 
-      // Only stop after multiple failed attempts at maximum delay
+      // Only stop after many failed attempts at maximum delay (fallback for edge cases)
       if (noChangeCount >= effectiveMaxAttempts && currentDelay >= maxDelay) {
-        console.log(`Scrolling stopped - no new items after ${effectiveMaxAttempts} attempts. Total: ${lastItemsCount} items.`);
+        console.log(`Scrolling stopped - no new items after ${effectiveMaxAttempts} attempts (end text not found). Total: ${lastItemsCount} items.`);
         break;
       }
 

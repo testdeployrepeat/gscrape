@@ -309,22 +309,22 @@ setupHistoryEventDelegation();
 // Event Listeners
 bulkModeToggle.addEventListener('change', toggleBulkMode);
 
-// Speed mode change handler - updates subtext based on mode
+// Speed mode change handler - shows/hides fast mode settings based on mode and speed
 speedSelect.addEventListener('change', () => {
   const isBulkMode = bulkModeToggle.checked;
-  const fastModeSubtext = document.getElementById('fastModeSubtext');
-  const selectedOption = speedSelect.options[speedSelect.selectedIndex];
+  const isFastMode = speedSelect.value === 'fast';
 
-  if (speedSelect.value === 'fast') {
-    // Show appropriate text based on mode
-    const subtextContent = isBulkMode
-      ? selectedOption.getAttribute('data-bulk-text')
-      : selectedOption.getAttribute('data-single-text');
+  const emailScrapingContainer = document.getElementById('fastModeEmailScrapingContainer');
+  const parallelScrapingContainer = document.getElementById('fastModeParallelScrapingContainer');
 
-    fastModeSubtext.textContent = subtextContent;
-    fastModeSubtext.style.display = 'block';
-  } else {
-    fastModeSubtext.style.display = 'none';
+  // Show Fast Mode Email Scraping in BOTH modes when fast is selected
+  if (emailScrapingContainer) {
+    emailScrapingContainer.style.display = isFastMode ? 'block' : 'none';
+  }
+
+  // Show Fast Mode Parallel Scraping in bulk mode only when fast is selected
+  if (parallelScrapingContainer) {
+    parallelScrapingContainer.style.display = (isBulkMode && isFastMode) ? 'block' : 'none';
   }
 });
 document.getElementById('headerStartBtn').addEventListener('click', () => {
@@ -872,8 +872,6 @@ function toggleBulkMode() {
       fastOption.disabled = false;
       fastOption.style.opacity = '1';
     }
-
-    document.getElementById('fastModeSubtext').style.display = 'none';
   } else {
     singleMode.style.display = 'block';
     bulkMode.style.display = 'none';
@@ -887,7 +885,7 @@ function toggleBulkMode() {
     }
   }
 
-  // Trigger speed change to update subtext for current mode
+  // Trigger speed change to update fast mode settings visibility
   speedSelect.dispatchEvent(new Event('change'));
 }
 
@@ -1792,7 +1790,7 @@ async function startSingleScraping() {
     });
     renderHistory(); // Render immediately before async save
     window.electronAPI.saveHistory(history); // Save asynchronously (no await)
-    updateStats();
+    updateStats(dataWithQuery);
 
     progressText.textContent = `✓ Successfully scraped ${result.data.length} businesses!`;
     progressText.style.color = 'var(--success)';
