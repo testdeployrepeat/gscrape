@@ -296,6 +296,44 @@
       </div>
     </div>
 
+    <!-- Duplicate Detection Modal -->
+    <div id="duplicateModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>⚠️ Previously Scraped Locations</h2>
+          <button id="closeDuplicateModalBtn" class="btn-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: 16px; color: var(--text-secondary); font-size: 14px; text-align: center;">
+            It looks like you already have scraped the following location(s):
+          </p>
+          <ul id="duplicateLocationsList"
+            style="max-height: 150px; overflow-y: auto; margin-bottom: 24px; padding-left: 24px; color: var(--text-primary); font-size: 13px; background: var(--bg-secondary); border-radius: 8px; padding: 12px 12px 12px 32px;">
+            <!-- Dynamic list items will be inserted here -->
+          </ul>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button id="duplicateSkipBtn"
+              style="width: 100%; padding: 12px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; background: var(--accent-primary); color: white; transition: all 0.2s ease;">
+              Skip duplicates
+            </button>
+            <button id="duplicateScrapeAllBtn"
+              style="width: 100%; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; background: var(--bg-secondary); color: var(--text-primary); transition: all 0.2s ease;">
+              Scrape anyway
+            </button>
+            <button id="duplicateCancelBtn"
+              style="width: 100%; padding: 10px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 400; cursor: pointer; background: transparent; color: var(--text-tertiary); transition: all 0.2s ease;">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings Modal -->
     <div id="settingsModal" class="modal" style="display: none;">
       <div class="modal-content">
@@ -376,8 +414,8 @@
                   <span class="slider"></span>
                 </label>
               </label>
-              <small>Only enable this if you're not getting phone numbers or website links in your results (Google may
-                be blocking them in certain regions).</small>
+              <small>Only enable this if you're not getting phone numbers or website links in your results as Google
+                hides them in certain regions.</small>
             </div>
             <div class="form-group">
               <label class="switch-label">
@@ -604,24 +642,37 @@
               </div>
 
               <div class="form-group">
-                <label for="bulkQueries"
-                  style="display: flex; justify-content: space-between; align-items: center;">Locations (One per line)
-                  <span id="bulkPreview" style="font-weight: normal; color: var(--text-secondary);">Total Queries: <span
-                      id="queryCount">0</span></span></label>
-                <textarea id="bulkQueries" rows="4" placeholder="Enter locations line by line..."></textarea>
-              </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <label for="bulkQueries" style="margin-bottom: 0;">Locations</label>
+                  <span id="queryCountLabel" style="font-size: 13px; color: var(--text-secondary);">Total Queries:
+                    <span id="queryCount">0</span></span>
+                </div>
 
-              <div class="form-group">
-                <label>Upload CSV</label>
-                <p class="help-text">Upload a CSV with 1 column of locations (no header required)</p>
-                <div id="dropZone" class="drop-zone">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path
-                      d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"
-                      fill="currentColor" />
-                  </svg>
-                  <p>Drop CSV or Click</p>
-                  <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                <!-- Manual Entry Mode (default) -->
+                <div id="manualEntryMode">
+                  <textarea id="bulkQueries" rows="4" placeholder="Enter locations line by line..."></textarea>
+                </div>
+
+                <!-- CSV Upload Mode (hidden by default) -->
+                <div id="csvUploadMode" style="display: none;">
+                  <p class="help-text" style="margin-bottom: 8px;">Drop a CSV that contains only 1 column of the
+                    locations you want to scrape. No header.</p>
+                  <div id="dropZone" class="drop-zone">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path
+                        d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"
+                        fill="currentColor" />
+                    </svg>
+                    <p>Drop CSV or Click</p>
+                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                  </div>
+                </div>
+
+                <!-- Toggle link at bottom right -->
+                <div style="text-align: right; margin-top: 6px;">
+                  <a href="#" id="csvModeToggleLink"
+                    style="font-size: 12px; color: var(--accent-primary); text-decoration: none;">Use CSV file
+                    instead</a>
                 </div>
               </div>
 
@@ -736,7 +787,7 @@
 
             <div id="resultsContainer" class="results-container">
               <div class="empty-state">
-                <p>Waiting for data...</p>
+                <p>Start Scraping...</p>
               </div>
             </div>
           </div>

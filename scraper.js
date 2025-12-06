@@ -77,9 +77,9 @@ async function scrollResultsFeed(page, speed) {
   let lastItemsCount = 0;
   let noChangeCount = 0;
   let currentDelay = 300; // Start with fast 300ms delay
-  const maxDelay = 2000; // Cap at 2 seconds
+  const maxDelay = 2500; // Cap at 2.5 seconds for slow connections
   const delayMultiplier = 1.5; // Exponential backoff factor
-  const maxNoChangeAttempts = 3; // Require 3 consecutive no-change cycles before stopping
+  const maxNoChangeAttempts = 4; // Require 4 consecutive no-change cycles before stopping
 
   while (!shouldStop) {
     // Get current state and scroll

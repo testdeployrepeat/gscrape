@@ -25,7 +25,7 @@ const bulkNicheInput = document.getElementById('bulkNiche');
 const bulkQueriesInput = document.getElementById('bulkQueries');
 const dropZone = document.getElementById('dropZone');
 const csvFileInput = document.getElementById('csvFileInput');
-const bulkPreview = document.getElementById('bulkPreview');
+const queryCountLabel = document.getElementById('queryCountLabel');
 const queryCount = document.getElementById('queryCount');
 
 const speedSelect = document.getElementById('speed');
@@ -596,6 +596,26 @@ dropZone.addEventListener('drop', handleDrop);
 csvFileInput.addEventListener('change', handleFileSelect);
 bulkQueriesInput.addEventListener('input', handleManualInput);
 
+// CSV mode toggle handler
+let isCsvMode = false;
+const csvModeToggleLink = document.getElementById('csvModeToggleLink');
+const manualEntryMode = document.getElementById('manualEntryMode');
+const csvUploadMode = document.getElementById('csvUploadMode');
+
+csvModeToggleLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  isCsvMode = !isCsvMode;
+  if (isCsvMode) {
+    manualEntryMode.style.display = 'none';
+    csvUploadMode.style.display = 'block';
+    csvModeToggleLink.textContent = 'Use manual entry instead';
+  } else {
+    manualEntryMode.style.display = 'block';
+    csvUploadMode.style.display = 'none';
+    csvModeToggleLink.textContent = 'Use CSV file instead';
+  }
+});
+
 window.electronAPI.onScrapingProgress((progress) => {
   updateProgress(progress);
 });
@@ -722,6 +742,8 @@ function parseCSVFile(file) {
     }
 
     updateBulkPreview();
+    // Update label to indicate queries were detected from CSV
+    queryCountLabel.innerHTML = `Total Queries Detected: <span id="queryCount">${bulkQueries.length}</span>`;
   };
 
   reader.readAsText(file);
@@ -840,16 +862,33 @@ function renderHistory() {
               <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
             </svg>
           </button>` : '';
+
+        // Extract niche name and progress for bulk items
+        let queryDisplay = escapeHtml(item.query);
+        let progressLabel = '';
+        if (item.isBulk && item.bulkData) {
+          // Show just the niche name
+          queryDisplay = escapeHtml(item.query.replace(/^Bulk: /, '').replace(/\s*\(\d+\/\d+\s*completed\)$/i, ''));
+          // Create separate progress label
+          const completed = item.bulkData.completedQueries || 0;
+          const total = item.bulkData.totalQueries || 0;
+          progressLabel = `<div style="font-size: 11px; color: var(--text-tertiary); margin-top: 2px;">${completed}/${total} queries completed</div>`;
+        }
+
         return `
-        <div class="history-item has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+        <div class="history-item has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}" style="flex-wrap: nowrap; overflow: hidden;">
           <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
-          <div class="history-content">
-            <div class="history-query">${item.isBulk ? escapeHtml(item.query.replace(/^Bulk: /, '')) : escapeHtml(item.query)} ${statusLabel}</div>
-            <div class="history-meta">
+          <div class="history-content" style="min-width: 0; flex: 1; overflow: hidden;">
+            <div class="history-query" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${queryDisplay}</span>
+              ${statusLabel}
+            </div>
+            ${progressLabel}
+            <div class="history-meta" style="margin-top: 4px;">
               ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
             </div>
           </div>
-          <div class="history-actions">
+          <div class="history-actions" style="flex-shrink: 0;">
             ${eyeIcon}
             ${resumeBtn}
             <button class="btn-icon export-history" title="Export this record">
@@ -1548,6 +1587,33 @@ async function startSingleScraping() {
   }
   const query = `${niche} ${preposition} ${location}`;
 
+  // Check for previously scraped locations in history (single mode)
+  const previouslyScrapedLocations = new Set();
+  history.searches.forEach(record => {
+    // Check single mode records
+    if (!record.isBulk && record.query) {
+      // Extract location from query like "restaurants in New York"
+      const match = record.query.match(/\s(?:in|near|at|for|on)\s(.+)$/i);
+      if (match) {
+        previouslyScrapedLocations.add(match[1].toLowerCase());
+      }
+    }
+    // Also check bulk mode records
+    if (record.isBulk && record.bulkData && record.bulkData.queries) {
+      record.bulkData.queries.forEach(loc => previouslyScrapedLocations.add(loc.toLowerCase()));
+    }
+  });
+
+  if (previouslyScrapedLocations.has(location.toLowerCase())) {
+    const userChoice = await showDuplicateModal([location]);
+
+    if (userChoice === 'cancel' || userChoice === 'skip') {
+      // For single mode, skip = cancel since there's only one location
+      return;
+    }
+    // If 'scrapeall', continue
+  }
+
   // Update header button to Stop
   isScrapingActive = true;
   headerStartBtn.innerHTML = `
@@ -1785,14 +1851,41 @@ async function startBulkScraping(resumedTimestamp = null) {
   if (!scrapedData) scrapedData = [];
   let totalResults = 0;
 
-  // Get last processed index from localStorage for resume functionality
-  const lastProcessedIndex = parseInt(localStorage.getItem(resumeKey) || '0');
+  // Clear old resume key if exists (no longer used for resume prompts)
+  localStorage.removeItem(resumeKey);
 
-  if (lastProcessedIndex > 0) {
-    const resume = confirm(`Found previous session. Resume from query ${lastProcessedIndex + 1}?`);
-    if (!resume) {
-      localStorage.removeItem(resumeKey);
+  // Check for previously scraped locations in history
+  const previouslyScrapedLocations = new Set();
+  history.searches.forEach(record => {
+    if (record.isBulk && record.bulkData && record.bulkData.queries) {
+      record.bulkData.queries.forEach(loc => previouslyScrapedLocations.add(loc.toLowerCase()));
     }
+  });
+
+  // Find duplicates in current bulk queries
+  const duplicates = bulkQueries.filter(loc => previouslyScrapedLocations.has(loc.toLowerCase()));
+
+  if (duplicates.length > 0) {
+    const userChoice = await showDuplicateModal(duplicates);
+
+    if (userChoice === 'cancel') {
+      isScrapingActive = false;
+      progressSection.style.display = 'none';
+      return;
+    }
+
+    if (userChoice === 'skip') {
+      // Filter out duplicates from bulkQueries
+      bulkQueries = bulkQueries.filter(loc => !previouslyScrapedLocations.has(loc.toLowerCase()));
+      if (bulkQueries.length === 0) {
+        showCustomAlert('No New Locations', 'All locations have already been scraped. Nothing to do.');
+        isScrapingActive = false;
+        progressSection.style.display = 'none';
+        return;
+      }
+      totalQueries.textContent = bulkQueries.length;
+    }
+    // If 'scrapeall', continue with all queries
   }
 
   // Use startIndex that was already calculated above (line 1582)
@@ -2590,10 +2683,9 @@ function renderResultsPage(items, append = false) {
 
 // Add load more button
 function addLoadMoreButton() {
-  const remaining = fullResultsData.length - displayedResultsCount;
   const loadMoreHtml = `
-    <button class="load-more-btn btn-secondary" style="width: 100%; margin-top: 12px; padding: 12px;">
-      Load More (${remaining} remaining)
+    <button class="load-more-btn" style="width: 100%; margin-top: 16px; padding: 14px; border: 1px dashed var(--border-color); border-radius: 8px; background: transparent; color: var(--accent-primary); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s ease;">
+      ↓ Load More
     </button>
   `;
   resultsContainer.insertAdjacentHTML('beforeend', loadMoreHtml);
@@ -3633,6 +3725,55 @@ function showCustomAlert(title, message) {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', alertHtml);
+}
+
+// Show duplicate detection modal and return user choice
+function showDuplicateModal(duplicateLocations) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('duplicateModal');
+    const list = document.getElementById('duplicateLocationsList');
+    const closeBtn = document.getElementById('closeDuplicateModalBtn');
+    const cancelBtn = document.getElementById('duplicateCancelBtn');
+    const skipBtn = document.getElementById('duplicateSkipBtn');
+    const scrapeAllBtn = document.getElementById('duplicateScrapeAllBtn');
+
+    // Populate the list with duplicate locations
+    list.innerHTML = duplicateLocations.map(loc => `<li>${escapeHtml(loc)}</li>`).join('');
+
+    // Show modal
+    modal.style.display = 'flex';
+    modal.classList.add('show');
+
+    // Cleanup function
+    const cleanup = () => {
+      modal.style.display = 'none';
+      modal.classList.remove('show');
+      closeBtn.removeEventListener('click', handleCancel);
+      cancelBtn.removeEventListener('click', handleCancel);
+      skipBtn.removeEventListener('click', handleSkip);
+      scrapeAllBtn.removeEventListener('click', handleScrapeAll);
+    };
+
+    const handleCancel = () => {
+      cleanup();
+      resolve('cancel');
+    };
+
+    const handleSkip = () => {
+      cleanup();
+      resolve('skip');
+    };
+
+    const handleScrapeAll = () => {
+      cleanup();
+      resolve('scrapeall');
+    };
+
+    closeBtn.addEventListener('click', handleCancel);
+    cancelBtn.addEventListener('click', handleCancel);
+    skipBtn.addEventListener('click', handleSkip);
+    scrapeAllBtn.addEventListener('click', handleScrapeAll);
+  });
 }
 
 // Show update notification with optional action button
