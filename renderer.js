@@ -8,6 +8,11 @@ let currentBulkOperation = null; // Track current bulk operation
 let startTime = null;
 let timerInterval = null;
 
+// Pagination for live results (performance optimization)
+const RESULTS_PAGE_SIZE = 20;
+let displayedResultsCount = 0;
+let fullResultsData = []; // Store full data for exports while displaying paginated
+
 // DOM Elements
 const bulkModeToggle = document.getElementById('bulkModeToggle');
 const singleMode = document.getElementById('singleMode');
@@ -2488,75 +2493,129 @@ function renderResults(data) {
   if (!data || data.length === 0) {
     resultsContainer.innerHTML = '<div class="empty-state"><p>No results found</p></div>';
     resultsActions.style.display = 'none';
+    fullResultsData = [];
+    displayedResultsCount = 0;
     return;
   }
+
+  // Store full data for exports
+  fullResultsData = data;
+  displayedResultsCount = Math.min(RESULTS_PAGE_SIZE, data.length);
 
   resultsActions.style.display = 'flex';
   resultsCount.textContent = `${data.length} results`;
 
-  resultsContainer.innerHTML = data
-    .map(item => `
-      <div class="result-item">
-        <div class="result-header">
-          <div>
-            <div class="result-name">${escapeHtml(item.name)}</div>
-            ${item.category ? `<div class="result-category">${escapeHtml(item.category)}</div>` : ''}
-            ${item.search_query ? `<div class="result-category" style="color: var(--accent-primary); margin-top: 4px;">Query: ${escapeHtml(item.search_query)}</div>` : ''}
+  // Render only first page
+  renderResultsPage(data.slice(0, displayedResultsCount), false);
+
+  // Add "Load More" button if more results exist
+  if (data.length > displayedResultsCount) {
+    addLoadMoreButton();
+  }
+}
+
+// Render a page of results (append or replace)
+function renderResultsPage(items, append = false) {
+  const html = items.map(item => `
+    <div class="result-item">
+      <div class="result-header">
+        <div>
+          <div class="result-name">${escapeHtml(item.name)}</div>
+          ${item.category ? `<div class="result-category">${escapeHtml(item.category)}</div>` : ''}
+          ${item.search_query ? `<div class="result-category" style="color: var(--accent-primary); margin-top: 4px;">Query: ${escapeHtml(item.search_query)}</div>` : ''}
+        </div>
+        ${item.rating ? `
+          <div class="result-rating">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+            </svg>
+            ${item.rating} ${item.reviews ? `(${item.reviews})` : ''}
           </div>
-          ${item.rating ? `
-            <div class="result-rating">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
-              </svg>
-              ${item.rating} ${item.reviews ? `(${item.reviews})` : ''}
-            </div>
-          ` : ''}
-        </div>
-        <div class="result-details">
-          ${item.address ? `
-            <div class="detail-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-              </svg>
-              <span>${escapeHtml(item.address)}</span>
-            </div>
-          ` : ''}
-          ${item.phone ? `
-            <div class="detail-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
-              </svg>
-              <span>${escapeHtml(item.phone)}</span>
-            </div>
-          ` : ''}
-          ${item.website ? `
-            <div class="detail-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/>
-              </svg>
-              <a href="${item.website}" target="_blank" style="color: #06b6d4;">${truncate(item.website, 50)}</a>
-            </div>
-          ` : ''}
-          ${item.email ? `
-            <div class="detail-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-              </svg>
-              <a href="mailto:${item.email}" style="color: #06b6d4;">${item.email}</a>
-            </div>
-          ` : ''}
-          ${item.owner ? `
-            <div class="detail-row">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-              </svg>
-              <a href="${item.owner}" target="_blank">Owner Profile</a>
-            </div>
-          ` : ''}
-        </div>
+        ` : ''}
       </div>
-    `)
-    .join('');
+      <div class="result-details">
+        ${item.address ? `
+          <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+            </svg>
+            <span>${escapeHtml(item.address)}</span>
+          </div>
+        ` : ''}
+        ${item.phone ? `
+          <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+            </svg>
+            <span>${escapeHtml(item.phone)}</span>
+          </div>
+        ` : ''}
+        ${item.website ? `
+          <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/>
+            </svg>
+            <a href="${item.website}" target="_blank" style="color: #06b6d4;">${truncate(item.website, 50)}</a>
+          </div>
+        ` : ''}
+        ${item.email ? `
+          <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+            </svg>
+            <a href="mailto:${item.email}" style="color: #06b6d4;">${item.email}</a>
+          </div>
+        ` : ''}
+        ${item.owner ? `
+          <div class="detail-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+            </svg>
+            <a href="${item.owner}" target="_blank">Owner Profile</a>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  if (append) {
+    // Remove existing load more button before appending
+    const existingBtn = resultsContainer.querySelector('.load-more-btn');
+    if (existingBtn) existingBtn.remove();
+    resultsContainer.insertAdjacentHTML('beforeend', html);
+  } else {
+    resultsContainer.innerHTML = html;
+  }
+}
+
+// Add load more button
+function addLoadMoreButton() {
+  const remaining = fullResultsData.length - displayedResultsCount;
+  const loadMoreHtml = `
+    <button class="load-more-btn btn-secondary" style="width: 100%; margin-top: 12px; padding: 12px;">
+      Load More (${remaining} remaining)
+    </button>
+  `;
+  resultsContainer.insertAdjacentHTML('beforeend', loadMoreHtml);
+
+  // Add click handler
+  const btn = resultsContainer.querySelector('.load-more-btn');
+  btn.addEventListener('click', loadMoreResults);
+}
+
+// Load more results
+function loadMoreResults() {
+  const startIndex = displayedResultsCount;
+  const endIndex = Math.min(startIndex + RESULTS_PAGE_SIZE, fullResultsData.length);
+  const newItems = fullResultsData.slice(startIndex, endIndex);
+
+  displayedResultsCount = endIndex;
+  renderResultsPage(newItems, true);
+
+  // Add load more button if more results exist
+  if (fullResultsData.length > displayedResultsCount) {
+    addLoadMoreButton();
+  }
 }
 
 async function exportData() {

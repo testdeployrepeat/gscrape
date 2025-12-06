@@ -36,9 +36,9 @@ async function handleConsent(page) {
 
 /**
  * Scrolls the main results panel on Google Maps until the end is reached.
+ * Uses event-driven scrolling with content-aware waiting for optimal speed.
  */
 async function scrollResultsFeed(page, speed) {
-  const scrollDelay = 1500; // Always use normal mode delay
   // Updated selector to catch multiple possible selectors Google uses
   const scrollableElementSelectors = [
     'div[aria-label^="Results for"]',
@@ -73,61 +73,84 @@ async function scrollResultsFeed(page, speed) {
     throw new Error("Could not find the results list to scroll. The page layout may have changed or the page is blocked.");
   }
 
-  // Node.js controlled scrolling loop for responsive stopping
-  let lastHeight = 0;
-  let consecutiveNoChangeCount = 0;
-  const maxConsecutiveNoChange = 2;
+  // Event-driven scrolling with exponential backoff
   let lastItemsCount = 0;
+  let noChangeCount = 0;
+  let currentDelay = 300; // Start with fast 300ms delay
+  const maxDelay = 2000; // Cap at 2 seconds
+  const delayMultiplier = 1.5; // Exponential backoff factor
+  const maxNoChangeAttempts = 3; // Require 3 consecutive no-change cycles before stopping
 
   while (!shouldStop) {
-    // Check stop flag before action
-    if (shouldStop) break;
-
-    const result = await page.evaluate(async (selector) => {
+    // Get current state and scroll
+    const result = await page.evaluate((selector) => {
       const element = document.querySelector(selector);
       if (!element) return { error: 'Element not found' };
 
-      // Get current state
-      const currentHeight = element.scrollHeight;
       const items = document.querySelectorAll('div[role="feed"] > div > div[jsaction] a[href*="/maps/place/"]').length;
       const endText = element.innerText || '';
-      const isAtBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 100;
+      const previousScrollTop = element.scrollTop;
 
-      // Scroll down
+      // Scroll to bottom
       element.scrollTop = element.scrollHeight;
 
       return {
-        height: currentHeight,
         items,
         endText,
-        isAtBottom
+        scrollChanged: element.scrollTop !== previousScrollTop,
+        isAtBottom: element.scrollHeight - element.scrollTop <= element.clientHeight + 100
       };
     }, selectedSelector);
 
     if (result.error) break;
 
-    // Check progress
-    if (result.items === lastItemsCount) {
-      consecutiveNoChangeCount++;
-      if (consecutiveNoChangeCount >= maxConsecutiveNoChange) {
-        console.log(`Scrolling stopped - no new items found after ${maxConsecutiveNoChange} checks.`);
-        break;
-      }
-    } else {
-      consecutiveNoChangeCount = 0;
-      lastItemsCount = result.items;
-      lastHeight = result.height;
-    }
-
-    // Check end conditions
-    if (result.endText.includes("You've reached the end") ||
-      (result.isAtBottom && result.items === lastItemsCount && consecutiveNoChangeCount > 0)) {
-      console.log('Scrolling stopped - end reached.');
+    // Check for "end of list" text immediately (most reliable signal)
+    if (result.endText.includes("You've reached the end")) {
+      console.log('Scrolling stopped - end of list detected.');
       break;
     }
 
-    // Wait before next scroll (allows Node event loop to process stop signal)
-    await wait(scrollDelay);
+    // Check if new items loaded
+    if (result.items > lastItemsCount) {
+      // New content loaded - reset counters
+      lastItemsCount = result.items;
+      noChangeCount = 0;
+      currentDelay = 300; // Reset to fast delay
+      console.log(`Found ${result.items} items...`);
+    } else {
+      // No new items - might be still loading or at end
+      noChangeCount++;
+
+      // Only stop after multiple failed attempts at maximum delay
+      if (noChangeCount >= maxNoChangeAttempts && currentDelay >= maxDelay) {
+        console.log(`Scrolling stopped - no new items after ${maxNoChangeAttempts} attempts. Total: ${lastItemsCount} items.`);
+        break;
+      }
+
+      // Increase delay with exponential backoff (content might still be loading)
+      currentDelay = Math.min(currentDelay * delayMultiplier, maxDelay);
+    }
+
+    // Wait for content to load - use shorter waits when content is actively loading
+    try {
+      // Try to detect new content appearing (faster than fixed delay)
+      await page.waitForFunction(
+        (selector, prevCount) => {
+          const items = document.querySelectorAll('div[role="feed"] > div > div[jsaction] a[href*="/maps/place/"]').length;
+          return items > prevCount;
+        },
+        { timeout: currentDelay },
+        selectedSelector,
+        lastItemsCount
+      );
+      // Content appeared - reset delay
+      currentDelay = 300;
+    } catch (e) {
+      // Timeout - no new content appeared, will check on next iteration
+    }
+
+    // Small buffer to allow DOM updates
+    await wait(150);
   }
 }
 
