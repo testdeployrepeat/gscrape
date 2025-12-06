@@ -470,8 +470,8 @@ fastModeParallelScrapingInput.addEventListener('change', (e) => {
 
 // Fast Mode Parallel Scraping Default Button
 fastModeParallelScrapingDefaultBtn.addEventListener('click', () => {
-  fastModeParallelScrapingInput.value = '2'; // Set to default value
-  localStorage.setItem('fastModeParallelScraping', '2');
+  fastModeParallelScrapingInput.value = '5'; // Set to default value
+  localStorage.setItem('fastModeParallelScraping', '5');
 
   // Update warning display after setting default
   fastModeParallelWarning.style.display = 'none';
