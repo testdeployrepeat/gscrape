@@ -206,6 +206,19 @@ async function scrapeGoogleMaps(options, progressCallback) {
       delete navigator.__proto__.webdriver;
     });
 
+    // Close the default about:blank tab that Puppeteer creates
+    const pages = await browser.pages();
+    if (pages.length > 1) {
+      // Find and close about:blank tab
+      for (const p of pages) {
+        const url = p.url();
+        if (url === 'about:blank' || url === '') {
+          await p.close().catch(() => { }); // Ignore errors
+          break;
+        }
+      }
+    }
+
     if (shouldStop) throw new Error('Scraping cancelled by user');
 
     progressCallback({ status: 'navigating', message: `Searching for "${searchQuery}"...` });
@@ -434,19 +447,29 @@ async function scrapeGoogleMaps(options, progressCallback) {
     progressCallback({ status: 'error', message });
     throw error;
   } finally {
-    // Properly close the browser with a timeout to avoid hanging
+    // Properly close the browser with timeout to prevent zombie processes
     if (browser) {
       try {
-        // Give a bit of time for any pending operations to complete
-        await wait(1000);
-        await browser.close();
+        // Close all pages first for cleaner shutdown
+        const pages = await browser.pages();
+        await Promise.all(pages.map(p => p.close().catch(() => { })));
+
+        // Disconnect and close browser with 3-second timeout
+        await Promise.race([
+          (async () => {
+            await browser.close();
+          })(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Browser close timeout')), 3000)
+          )
+        ]);
       } catch (closeError) {
         console.error('Error closing browser:', closeError);
-        // Force close if normal close fails
+        // Force kill the browser process immediately
         try {
-          await browser.close();
-        } catch (forceCloseError) {
-          console.error('Force close also failed:', forceCloseError);
+          browser.process()?.kill('SIGKILL');
+        } catch (killError) {
+          console.error('Could not kill browser process:', killError);
         }
       }
     }

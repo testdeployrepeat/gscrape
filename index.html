@@ -605,7 +605,10 @@
               </div>
 
               <div class="form-group">
-                <label for="bulkQueries">Locations (One per line)</label>
+                <label for="bulkQueries"
+                  style="display: flex; justify-content: space-between; align-items: center;">Locations (One per line)
+                  <span id="bulkPreview" style="font-weight: normal; color: var(--text-secondary);">Total Queries: <span
+                      id="queryCount">0</span></span></label>
                 <textarea id="bulkQueries" rows="4" placeholder="Enter locations line by line..."></textarea>
               </div>
 
@@ -638,9 +641,7 @@
 
 
 
-              <div class="bulk-preview" id="bulkPreview" style="display: none;">
-                <strong>Queries: <span id="queryCount">0</span></strong>
-              </div>
+
             </div>
 
             <!-- Common Settings -->

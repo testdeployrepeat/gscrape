@@ -487,8 +487,14 @@ document.getElementById('closeExportOptionsBtn').addEventListener('click', () =>
 document.getElementById('exportSingleCsvBtn').addEventListener('click', () => {
   document.getElementById('exportOptionsModal').classList.remove('show');
 
-  // Check if there's a currentExportRecord (individual record export)
-  if (window.currentExportRecord) {
+  // Check if this is from Query Status modal with selected queries
+  if (window.queryStatusExportData) {
+    const { bulkRecord, selectedLocations, filteredData } = window.queryStatusExportData;
+    // Export as single combined CSV
+    exportFilteredData(bulkRecord, selectedLocations);
+    // Clear the temporary data
+    delete window.queryStatusExportData;
+  } else if (window.currentExportRecord) {
     // This is an individual bulk record export - treat as single CSV for that record
     exportSingleBulkRecord(window.currentExportRecord, 'single');
     // Clear the temporary record
@@ -499,11 +505,39 @@ document.getElementById('exportSingleCsvBtn').addEventListener('click', () => {
   }
 });
 
-document.getElementById('exportSeparateCsvBtn').addEventListener('click', () => {
+document.getElementById('exportSeparateCsvBtn').addEventListener('click', async () => {
   document.getElementById('exportOptionsModal').classList.remove('show');
 
-  // Check if there's a currentExportRecord (individual record export)
-  if (window.currentExportRecord) {
+  // Check if this is from Query Status modal with selected queries
+  if (window.queryStatusExportData) {
+    const { bulkRecord, selectedLocations, filteredData } = window.queryStatusExportData;
+    // Export each location as a separate CSV file
+    for (const location of selectedLocations) {
+      // Filter data for this specific location
+      const locationData = filteredData.filter(item => {
+        const itemSearchQuery = (item.search_query || '').toLowerCase();
+        const lowerLoc = location.toLowerCase();
+
+        if (itemSearchQuery.endsWith(lowerLoc)) return true;
+        const words = itemSearchQuery.split(/\s+/);
+        if (words.includes(lowerLoc)) return true;
+        if (lowerLoc.includes(' ') && itemSearchQuery.includes(lowerLoc)) return true;
+        return false;
+      });
+
+      if (locationData.length > 0) {
+        const cleanLocation = location.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+        const filename = `${cleanLocation}.csv`;
+        await window.electronAPI.exportDataToFolder({
+          data: locationData,
+          format: 'csv',
+          filename
+        });
+      }
+    }
+    // Clear the temporary data
+    delete window.queryStatusExportData;
+  } else if (window.currentExportRecord) {
     // This is an individual bulk record export - treat as separate CSVs for that record
     exportSingleBulkRecord(window.currentExportRecord, 'separate');
     // Clear the temporary record
@@ -697,12 +731,8 @@ function handleManualInput() {
 }
 
 function updateBulkPreview() {
-  if (bulkQueries.length > 0) {
-    bulkPreview.style.display = 'block';
-    queryCount.textContent = bulkQueries.length;
-  } else {
-    bulkPreview.style.display = 'none';
-  }
+  // Always update the query count - the label is always visible now
+  queryCount.textContent = bulkQueries.length;
 }
 
 async function loadHistory() {
@@ -988,6 +1018,9 @@ function renderHistory() {
       scrapedData = record.data;
       renderResults(record.data);
 
+      // Track the currently displayed record for export button functionality
+      window.currentDisplayedRecord = record;
+
       // Update stats to show data from the selected record
       updateStats(record.data);
 
@@ -1246,7 +1279,6 @@ function showQueryStatusModal(title, content, timestamp) {
     }
 
     // Get the original bulk record to access the full data
-    // Get the original bulk record to access the full data
     const bulkRecord = history.searches.find(s => s.timestamp === timestamp);
     if (!bulkRecord || !bulkRecord.data || !Array.isArray(bulkRecord.data)) {
       alert('No data available for export.');
@@ -1311,8 +1343,22 @@ function showQueryStatusModal(title, content, timestamp) {
       return;
     }
 
-    // Export the data from the bulk record based on selected locations
-    exportFilteredData(bulkRecord, selectedLocations);
+    // If 2 or more queries are selected, show export options modal
+    if (selectedCheckboxes.length >= 2) {
+      // Store the data for the export options modal to use
+      window.queryStatusExportData = {
+        bulkRecord: bulkRecord,
+        selectedLocations: selectedLocations,
+        filteredData: filteredData
+      };
+      // Close the query status modal
+      modal.remove();
+      // Show export options modal
+      document.getElementById('exportOptionsModal').classList.add('show');
+    } else {
+      // Single selection - export directly
+      exportFilteredData(bulkRecord, selectedLocations);
+    }
   });
 
   // Close modal when clicking outside
@@ -1468,6 +1514,12 @@ async function startScraping() {
   resultsActions.style.display = 'none';
   resultsCount.textContent = '0';
 
+  // Clear stat-items immediately when starting new scraping
+  document.getElementById('totalCompanies').textContent = '0';
+  document.getElementById('totalWebsites').textContent = '0';
+  document.getElementById('totalPhones').textContent = '0';
+  document.getElementById('totalEmails').textContent = '0';
+
   if (isBulkMode) {
     await startBulkScraping();
   } else {
@@ -1573,8 +1625,8 @@ async function startSingleScraping() {
       timestamp: new Date().toISOString(),
       data: dataWithQuery // Save the actual data in history with query and location info
     });
-    await window.electronAPI.saveHistory(history);
-    renderHistory();
+    renderHistory(); // Render immediately before async save
+    window.electronAPI.saveHistory(history); // Save asynchronously (no await)
     updateStats();
 
     progressText.textContent = `✓ Successfully scraped ${result.data.length} businesses!`;
@@ -1760,8 +1812,9 @@ async function startBulkScraping(resumedTimestamp = null) {
 
     // Parallel processing for fast mode: use user-defined number of queries at a time
     const defaultParallelLimit = 2;
+    const maxSafeParallelLimit = 10; // Match max setting in UI (1-10)
     const savedParallelLimit = parseInt(localStorage.getItem('fastModeParallelScraping')) || defaultParallelLimit;
-    const parallelLimit = savedParallelLimit > 0 ? savedParallelLimit : defaultParallelLimit;
+    const parallelLimit = Math.min(savedParallelLimit > 0 ? savedParallelLimit : defaultParallelLimit, maxSafeParallelLimit);
 
     // Queue-based parallel processing: maintain constant concurrency
     let currentQueryIndex = startIndex;
@@ -1857,12 +1910,14 @@ async function startBulkScraping(resumedTimestamp = null) {
               history.searches[processingRecordIndex].data = [...scrapedData];
             }
 
-            // Save history after each query since we're updating the main bulk record
-            await window.electronAPI.saveHistory(history);
+            // Save history asynchronously (don't wait) to avoid blocking next query
+            window.electronAPI.saveHistory(history);
 
-            // Update UI immediately - note: for bulk operations, results are already in the main bulk record
-            renderResults(scrapedData);
-            updateStats();
+            // Update UI periodically (every 3rd completion) to reduce DOM overhead
+            if (completedQueries % 3 === 0 || completedQueries === bulkQueries.length) {
+              renderResults(scrapedData);
+              updateStats();
+            }
 
             progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
             progressText.style.color = 'var(--success)';
@@ -1931,14 +1986,27 @@ async function startBulkScraping(resumedTimestamp = null) {
           localStorage.setItem(resumeKey, (queryIndex + 1).toString());
         } catch (error) {
           console.error('Error processing query:', error);
+          // On critical error, mark query as failed and continue
+          progressText.textContent = `✗ Error on query ${queryIndex + 1}: ${error.message}`;
+          progressText.style.color = 'var(--error)';
+
+          // If it's a browser launch error, stop this worker to prevent cascading failures
+          if (error.message && (error.message.includes('browser') || error.message.includes('timeout') || error.message.includes('connection'))) {
+            console.error('Critical browser error, stopping worker');
+            break;
+          }
         }
 
         completedQueries++;
       }
     };
 
-    // Start concurrent workers
+    // Start concurrent workers with staggered delays to prevent simultaneous browser launches
     for (let i = 0; i < parallelLimit; i++) {
+      // Stagger worker starts by 500ms each to reduce resource spike
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       workers.push(processNextQuery());
     }
 
@@ -1957,7 +2025,7 @@ async function startBulkScraping(resumedTimestamp = null) {
         const processingRecord = history.searches[processingRecordIndex];
 
         // Mark as complete
-        processingRecord.status = 'complete';
+        processingRecord.status = 'completed'; // Use 'completed' not 'complete'
         processingRecord.endTime = Date.now();
         processingRecord.query = `Bulk: ${niche} (${bulkQueries.length}/${bulkQueries.length} completed)`;
 
@@ -1968,8 +2036,11 @@ async function startBulkScraping(resumedTimestamp = null) {
         document.getElementById('progressPercent').textContent = '100%';
         document.getElementById('fastCompletedQueries').textContent = bulkQueries.length;
 
-        // Save final history
-        await window.electronAPI.saveHistory(history);
+        // Save final history asynchronously (don't wait - already saved after each query)
+        window.electronAPI.saveHistory(history);
+
+        // Update UI immediately to show completion
+        renderHistory();
 
         bulkOperationCompleted = true;
       }
@@ -2124,6 +2195,18 @@ async function startBulkScraping(resumedTimestamp = null) {
         progressText.style.color = 'var(--error)';
       }
 
+      // Update progress bar based on completed queries (not just current index)
+      const processingRecordIndex = history.searches.findIndex(item =>
+        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+      );
+
+      if (processingRecordIndex !== -1 && history.searches[processingRecordIndex].bulkData) {
+        const completedCount = history.searches[processingRecordIndex].bulkData.completedQueries || 0;
+        const progressPercentValue = Math.floor((completedCount / bulkQueries.length) * 100);
+        progressFill.style.width = `${progressPercentValue}%`;
+        if (progressPercent) progressPercent.textContent = `${progressPercentValue}%`;
+      }
+
 
       // Save progress
       localStorage.setItem(resumeKey, (i + 1).toString());
@@ -2159,170 +2242,71 @@ async function startBulkScraping(resumedTimestamp = null) {
   progressFill.style.width = '100%';
 
   // Skip creating paused session if operation completed successfully
-  if (typeof bulkOperationCompleted !== 'undefined' && bulkOperationCompleted) {
+  if (bulkOperationCompleted) {
     // Operation completed successfully, cleanup already done
+    document.getElementById('bulkProgress').style.display = 'block';
+    document.getElementById('fastBulkProgress').style.display = 'none';
     return;
   }
 
-  if (scrapedData.length > 0) {
-    if (wasCancelled && currentIndex < bulkQueries.length) {
-      // Find and update the existing processing record to paused
-      const processingRecordIndex = history.searches.findIndex(item =>
-        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
-      );
+  // Only treat as cancelled if we didn't complete all queries AND wasn't completed
+  // (wasCancelled is defined above as !isScrapingActive which is always true here, so check currentQueryIndex)
+  const actuallyWasCancelled = currentQueryIndex < bulkQueries.length;
 
-      if (processingRecordIndex !== -1) {
-        // Remove data from the currently running query if it wasn't completed
-        // Get the location of the current query (the one that was interrupted)
-        const currentQueryLocation = bulkQueries[currentIndex];
+  if (actuallyWasCancelled && scrapedData.length > 0) {
+    // Find and update the existing processing record to paused
+    const processingRecordIndex = history.searches.findIndex(item =>
+      item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+    );
 
-        // Filter out data from the currently running query
-        const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
+    if (processingRecordIndex !== -1) {
+      const currentQueryLocation = bulkQueries[currentIndex];
+      const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
 
-        // Calculate the actual number of completed queries based on queryStatus
-        let actualCompletedCount = 0;
-        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
-          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
-          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
-            if (queryStatus[i] && queryStatus[i].status === 'completed') {
-              actualCompletedCount++;
-            }
+      let actualCompletedCount = 0;
+      if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
+        const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
+        for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+          if (queryStatus[i] && queryStatus[i].status === 'completed') {
+            actualCompletedCount++;
           }
         }
-
-        // Update the record in place rather than replacing completely
-        history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
-        history.searches[processingRecordIndex].count = filteredData.length;
-        history.searches[processingRecordIndex].data = filteredData;
-        history.searches[processingRecordIndex].status = 'paused';
-
-        // Update bulkData - determine remaining queries from queryStatus
-        const remainingQueries = [];
-        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
-          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
-          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
-            if (queryStatus[i] && queryStatus[i].status !== 'completed') {
-              remainingQueries.push(queryStatus[i].location);
-            }
-          }
-        }
-
-        history.searches[processingRecordIndex].bulkData.niche = niche;
-        history.searches[processingRecordIndex].bulkData.remainingQueries = remainingQueries;
-        history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
-      } else {
-        // Fallback: add new record if processing record not found
-        // In this case, we also need to filter out data from the current query
-        const currentQueryLocation = bulkQueries[currentIndex];
-        const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
-
-        const remainingQueries = bulkQueries.slice(currentIndex);
-        history.searches.push({
-          query: `Bulk: ${niche} (${currentIndex}/${bulkQueries.length} completed)`,
-          count: filteredData.length,
-          timestamp: new Date().toISOString(),
-          data: filteredData,
-          status: 'paused',
-          isBulk: true,
-          bulkData: {
-            niche,
-            remainingQueries,
-            completedCount: currentIndex
-          }
-        });
       }
 
-      await window.electronAPI.saveHistory(history);
-      renderHistory();
-      updateStats();
+      history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
+      history.searches[processingRecordIndex].count = filteredData.length;
+      history.searches[processingRecordIndex].data = filteredData;
+      history.searches[processingRecordIndex].status = 'paused';
 
-      progressText.textContent = `⏸ Paused. Scraped ${scrapedData.length} businesses (${currentIndex}/${bulkQueries.length} queries completed)`;
-      progressText.style.color = 'var(--warning)';
-    } else {
-      // Update the existing processing record to completed
-      const processingRecordIndex = history.searches.findIndex(item =>
-        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
-      );
-
-      if (processingRecordIndex !== -1) {
-        history.searches[processingRecordIndex].count = scrapedData.length;
-        history.searches[processingRecordIndex].data = scrapedData;
-        history.searches[processingRecordIndex].status = 'completed';
-
-        // Update the query to show completed status
-        const totalQueries = history.searches[processingRecordIndex].bulkData.totalQueries;
-        history.searches[processingRecordIndex].query = `Bulk: ${niche} (${totalQueries}/${totalQueries} completed)`;
-      }
-
-      await window.electronAPI.saveHistory(history);
-      renderHistory();
-      updateStats();
-
-      progressText.textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
-      progressText.style.color = 'var(--success)';
-    }
-  } else {
-    // For the case when no data exists but operation was cancelled
-    if (wasCancelled) {
-      const processingRecordIndex = history.searches.findIndex(item =>
-        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
-      );
-
-      if (processingRecordIndex !== -1) {
-        // Remove data from the currently running query if it wasn't completed
-        // Get the location of the current query (the one that was interrupted)
-        const currentQueryLocation = bulkQueries[currentIndex];
-
-        // Filter out data from the currently running query
-        const filteredData = scrapedData.filter(item => item.search_location !== currentQueryLocation);
-
-        // Calculate completed count based on queryStatus
-        let actualCompletedCount = 0;
-        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
-          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
-          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
-            if (queryStatus[i] && queryStatus[i].status === 'completed') {
-              actualCompletedCount++;
-            }
+      const remainingQueries = [];
+      if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
+        const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
+        for (let i = 0; i < Object.keys(queryStatus).length; i++) {
+          if (queryStatus[i] && queryStatus[i].status !== 'completed') {
+            remainingQueries.push(queryStatus[i].location);
           }
         }
-
-        // Update the record in place rather than replacing
-        history.searches[processingRecordIndex].status = 'paused';
-        history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
-        history.searches[processingRecordIndex].count = filteredData.length;
-        history.searches[processingRecordIndex].data = filteredData;
-
-        // Update remaining queries based on queryStatus
-        const remainingQueries = [];
-        if (history.searches[processingRecordIndex].bulkData && history.searches[processingRecordIndex].bulkData.queryStatus) {
-          const queryStatus = history.searches[processingRecordIndex].bulkData.queryStatus;
-          for (let i = 0; i < Object.keys(queryStatus).length; i++) {
-            if (queryStatus[i] && queryStatus[i].status !== 'completed') {
-              remainingQueries.push(queryStatus[i].location);
-            }
-          }
-        }
-
-        history.searches[processingRecordIndex].bulkData.remainingQueries = remainingQueries;
-        history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
       }
 
-      await window.electronAPI.saveHistory(history);
-      renderHistory();
-      updateStats();
+      history.searches[processingRecordIndex].bulkData.niche = niche;
+      history.searches[processingRecordIndex].bulkData.remainingQueries = remainingQueries;
+      history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
     }
 
+    window.electronAPI.saveHistory(history);
+    renderHistory();
+    updateStats();
+
+    progressText.textContent = `⏸ Paused. Scraped ${scrapedData.length} businesses (${currentIndex}/${bulkQueries.length} queries completed)`;
+    progressText.style.color = 'var(--warning)';
+  } else if (actuallyWasCancelled) {
     progressText.textContent = '⏸ Scraping stopped.';
     progressText.style.color = 'var(--text-secondary)';
   }
 
-  // Final save
-  await window.electronAPI.saveHistory(history);
+  // Final UI cleanup
   renderHistory();
   updateStats();
-
-  // Show regular bulk progress (instead of fast mode) and reset to default view
   document.getElementById('bulkProgress').style.display = 'block';
   document.getElementById('fastBulkProgress').style.display = 'none';
 }
@@ -2644,6 +2628,14 @@ async function exportData() {
     // Default behavior - export current scraped data if no history items are selected
     if (!scrapedData || scrapedData.length === 0) {
       alert('No data to export');
+      return;
+    }
+
+    // Check if we're displaying a bulk record (clicked from history)
+    if (window.currentDisplayedRecord && window.currentDisplayedRecord.isBulk) {
+      // Show export options modal for bulk record data
+      window.currentExportRecord = window.currentDisplayedRecord;
+      document.getElementById('exportOptionsModal').classList.add('show');
       return;
     }
 
@@ -3493,29 +3485,11 @@ async function deleteSelectedRecords() {
   history.searches = history.searches.filter(s => !selectedHistoryItems.has(s.timestamp));
 
   // Also remove associated bulk resume keys from localStorage for deleted bulk records
-  const keysToRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith('bulk_resume_')) {
-      // Check if this key is related to any of the records being deleted
-      for (const record of recordsToBeDeleted) {
-        if (record.isBulk && record.bulkData && record.bulkData.niche && Array.isArray(record.bulkData.queries)) {
-          // Reconstruct the expected resume key based on the record's niche and queries
-          const expectedResumeKey = `bulk_resume_${record.bulkData.niche}_${record.bulkData.queries.join('_').substring(0, 50)}`;
-
-          // Since the queries part might be truncated, match by the beginning
-          if (key.startsWith(expectedResumeKey) ||
-            (key.startsWith(`bulk_resume_${record.bulkData.niche}_`) &&
-              record.bulkData.queries.some(query => key.includes(query.substring(0, 10))))) {
-            keysToRemove.push(key);
-            break; // Found a match, no need to check other records for this key
-          }
-        }
-      }
+  for (const record of recordsToBeDeleted) {
+    if (record.isBulk && record.bulkData && record.bulkData.resumeKey) {
+      localStorage.removeItem(record.bulkData.resumeKey);
     }
   }
-
-  keysToRemove.forEach(key => localStorage.removeItem(key));
 
   // Save updated history
   await window.electronAPI.saveHistory(history);

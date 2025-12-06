@@ -3,10 +3,23 @@ const fs = require('fs');
 const { app } = require('electron');
 
 /**
- * Gets the path to the bundled Chrome executable
+ * Gets the path to the Chrome executable
  * Works both in development and production (packaged app)
+ * Uses system Chrome on Mac, bundled Chrome on Windows
  */
 function getChromePath() {
+    const platform = process.platform;
+
+    // On Mac, use system-installed Chrome
+    if (platform === 'darwin') {
+        const macChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+        if (fs.existsSync(macChromePath)) {
+            return macChromePath;
+        }
+        throw new Error('Google Chrome not found. Please install Chrome from https://www.google.com/chrome/');
+    }
+
+    // On Windows/Linux, use bundled Chrome
     let chromePath;
 
     if (app.isPackaged) {
