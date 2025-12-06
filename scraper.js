@@ -73,15 +73,22 @@ async function scrollResultsFeed(page, speed) {
     throw new Error("Could not find the results list to scroll. The page layout may have changed or the page is blocked.");
   }
 
+  // Wait a moment for initial content to load before scrolling
+  await wait(500);
+
   // Event-driven scrolling with exponential backoff
   let lastItemsCount = 0;
   let noChangeCount = 0;
   let currentDelay = 300; // Start with fast 300ms delay
   const maxDelay = 2500; // Cap at 2.5 seconds for slow connections
   const delayMultiplier = 1.5; // Exponential backoff factor
-  const maxNoChangeAttempts = 4; // Require 4 consecutive no-change cycles before stopping
+  const maxNoChangeAttempts = 6; // Require 6 consecutive no-change cycles before stopping
+  let totalScrollAttempts = 0;
+  const maxTotalAttempts = 50; // Safety limit to prevent infinite loops
 
-  while (!shouldStop) {
+  while (!shouldStop && totalScrollAttempts < maxTotalAttempts) {
+    totalScrollAttempts++;
+
     // Get current state and scroll
     const result = await page.evaluate((selector) => {
       const element = document.querySelector(selector);
@@ -121,9 +128,13 @@ async function scrollResultsFeed(page, speed) {
       // No new items - might be still loading or at end
       noChangeCount++;
 
+      // If we're stuck at a low count (< 20), be more patient - likely slow load
+      const isLowCount = lastItemsCount < 20;
+      const effectiveMaxAttempts = isLowCount ? maxNoChangeAttempts + 3 : maxNoChangeAttempts;
+
       // Only stop after multiple failed attempts at maximum delay
-      if (noChangeCount >= maxNoChangeAttempts && currentDelay >= maxDelay) {
-        console.log(`Scrolling stopped - no new items after ${maxNoChangeAttempts} attempts. Total: ${lastItemsCount} items.`);
+      if (noChangeCount >= effectiveMaxAttempts && currentDelay >= maxDelay) {
+        console.log(`Scrolling stopped - no new items after ${effectiveMaxAttempts} attempts. Total: ${lastItemsCount} items.`);
         break;
       }
 
@@ -145,12 +156,26 @@ async function scrollResultsFeed(page, speed) {
       );
       // Content appeared - reset delay
       currentDelay = 300;
+      noChangeCount = 0; // Also reset no-change counter
     } catch (e) {
       // Timeout - no new content appeared, will check on next iteration
     }
 
     // Small buffer to allow DOM updates
-    await wait(150);
+    await wait(100);
+  }
+
+  // Final safety: if we only got a tiny amount, try one more aggressive scroll
+  if (lastItemsCount < 15 && !shouldStop) {
+    console.log('Low item count detected, attempting recovery scroll...');
+    await wait(1000);
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate((selector) => {
+        const element = document.querySelector(selector);
+        if (element) element.scrollTop = element.scrollHeight;
+      }, selectedSelector);
+      await wait(800);
+    }
   }
 }
 

@@ -101,6 +101,211 @@ try {
   console.error('updateStats failed:', e);
 }
 
+// Event delegation for history and bulk session containers
+// This prevents duplicate event listeners when renderHistory is called multiple times
+function setupHistoryEventDelegation() {
+  // Helper function to handle history item click (display results)
+  function handleHistoryItemClick(e, container) {
+    const historyItem = e.target.closest('.history-item');
+    if (!historyItem) return;
+
+    // Don't trigger if clicking on checkbox or action buttons
+    if (e.target.classList.contains('history-checkbox') || e.target.closest('.history-actions')) return;
+
+    // IMMEDIATELY highlight the clicked item for instant visual feedback
+    document.querySelectorAll('.history-item').forEach(i => i.classList.remove('selected'));
+    historyItem.classList.add('selected');
+
+    const query = historyItem.dataset.query;
+    const timestamp = historyItem.dataset.timestamp;
+
+    // Find the matching history record
+    const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
+    if (!record || !record.data) return;
+
+    // Display the results
+    scrapedData = record.data;
+    renderResults(record.data);
+
+    // Track the currently displayed record for export button functionality
+    window.currentDisplayedRecord = record;
+
+    // Update stats to show data from the selected record
+    updateStats(record.data);
+
+    // Reset progress bar to default state when viewing history items
+    // (The percentage is now shown in the status badge for paused/completed sessions)
+    progressFill.style.width = '0%';
+    if (progressPercent) progressPercent.textContent = '0%';
+    progressText.textContent = 'Ready to scrape';
+    progressText.style.color = 'var(--text-primary)';
+    document.getElementById('bulkProgress').style.display = 'none';
+    document.getElementById('fastBulkProgress').style.display = 'none';
+
+    // Scroll to results section after a small delay to ensure DOM updates are complete
+    setTimeout(() => {
+      document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+  }
+
+  // Handle checkbox changes via delegation
+  function handleCheckboxChange(e) {
+    if (!e.target.classList.contains('history-checkbox')) return;
+
+    const cb = e.target;
+    const timestamp = cb.dataset.timestamp;
+    const record = history.searches.find(s => s.timestamp === timestamp);
+
+    if (cb.checked) {
+      selectedHistoryItems.add(timestamp);
+      uncheckOppositeSection(record);
+    } else {
+      selectedHistoryItems.delete(timestamp);
+    }
+
+    updateSelectionUI();
+    updateLiveResultsFromSelection();
+    updateStatsFromSelection();
+
+    // Update select all link texts
+    const allCheckboxes = document.querySelectorAll('.history-checkbox');
+    const regularCheckboxes = Array.from(allCheckboxes).filter(cb => {
+      const r = history.searches.find(s => s.timestamp === cb.dataset.timestamp);
+      return r && !r.isBulk;
+    });
+    const regularAllChecked = regularCheckboxes.length > 0 && regularCheckboxes.every(cb => cb.checked);
+    selectAllLink.textContent = regularAllChecked ? 'Deselect All' : 'Select All';
+
+    const bulkCheckboxes = Array.from(allCheckboxes).filter(cb => {
+      const r = history.searches.find(s => s.timestamp === cb.dataset.timestamp);
+      return r && r.isBulk;
+    });
+    const bulkAllChecked = bulkCheckboxes.length > 0 && bulkCheckboxes.every(cb => cb.checked);
+    bulkSelectAllLink.textContent = bulkAllChecked ? 'Deselect All' : 'Select All';
+  }
+
+  // Handle export button clicks via delegation
+  function handleExportClick(e) {
+    const btn = e.target.closest('.export-history');
+    if (!btn) return;
+
+    e.stopPropagation();
+    const historyItem = btn.closest('.history-item');
+    const query = historyItem.dataset.query;
+    const timestamp = historyItem.dataset.timestamp;
+
+    const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
+    if (!record || !record.data) return;
+
+    const selectedCount = selectedHistoryItems.size;
+
+    if (record.isBulk) {
+      window.currentExportRecord = record;
+      document.getElementById('exportOptionsModal').classList.add('show');
+    } else {
+      if (selectedCount >= 2) {
+        document.getElementById('exportOptionsModal').classList.add('show');
+      } else {
+        exportSingleRecord(record);
+      }
+    }
+  }
+
+  // Handle delete button clicks via delegation
+  function handleDeleteClick(e) {
+    const btn = e.target.closest('.delete-history');
+    if (!btn) return;
+
+    e.stopPropagation();
+    const timestamp = btn.dataset.timestamp;
+
+    const record = history.searches.find(s => s.timestamp === timestamp);
+    if (!record) return;
+
+    if (confirm(`Are you sure you want to delete this record?\n\nQuery: ${record.query}`)) {
+      history.searches = history.searches.filter(s => s.timestamp !== timestamp);
+
+      window.electronAPI.saveHistory(history)
+        .then(() => {
+          renderHistory();
+          updateStats();
+        })
+        .catch(err => console.error('Error saving history after deletion:', err));
+    }
+  }
+
+  // SINGLE unified click handler for all history item interactions
+  function handleContainerClick(e, container) {
+    // Priority 1: Check for delete button click
+    const deleteBtn = e.target.closest('.delete-history');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const timestamp = deleteBtn.dataset.timestamp;
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      if (!record) return;
+
+      if (confirm(`Are you sure you want to delete this record?\n\nQuery: ${record.query}`)) {
+        history.searches = history.searches.filter(s => s.timestamp !== timestamp);
+        window.electronAPI.saveHistory(history)
+          .then(() => {
+            renderHistory();
+            updateStats();
+          })
+          .catch(err => console.error('Error saving history after deletion:', err));
+      }
+      return; // Stop processing
+    }
+
+    // Priority 2: Check for export button click
+    const exportBtn = e.target.closest('.export-history');
+    if (exportBtn) {
+      e.stopPropagation();
+      const historyItem = exportBtn.closest('.history-item');
+      const query = historyItem.dataset.query;
+      const timestamp = historyItem.dataset.timestamp;
+
+      const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
+      if (!record || !record.data) return;
+
+      const selectedCount = selectedHistoryItems.size;
+
+      if (record.isBulk) {
+        window.currentExportRecord = record;
+        document.getElementById('exportOptionsModal').classList.add('show');
+      } else {
+        if (selectedCount >= 2) {
+          document.getElementById('exportOptionsModal').classList.add('show');
+        } else {
+          exportSingleRecord(record);
+        }
+      }
+      return; // Stop processing
+    }
+
+    // Priority 3: Check for resume, view-queries, or other action button clicks
+    if (e.target.closest('.history-actions')) {
+      return; // Let the specific handlers in renderHistory deal with these
+    }
+
+    // Priority 4: Check for checkbox click (handled by change event, not click)
+    if (e.target.classList.contains('history-checkbox')) {
+      return; // Checkbox change is handled by the change event
+    }
+
+    // Priority 5: Handle history item click (for viewing results)
+    handleHistoryItemClick(e, container);
+  }
+
+  // Delegate events for both containers - SINGLE click handler per container
+  [historyContainer, bulkSessionContainer].forEach(container => {
+    container.addEventListener('click', (e) => handleContainerClick(e, container));
+    container.addEventListener('change', handleCheckboxChange);
+  });
+}
+
+// Set up event delegation once at initialization
+setupHistoryEventDelegation();
+
 // Event Listeners
 bulkModeToggle.addEventListener('change', toggleBulkMode);
 
@@ -808,9 +1013,10 @@ function renderHistory() {
       .reverse()
       .map(item => {
         const isChecked = selectedHistoryItems.has(item.timestamp) ? 'checked' : '';
+        const isSelected = window.currentDisplayedRecord && window.currentDisplayedRecord.timestamp === item.timestamp ? 'selected' : '';
 
         return `
-        <div class="history-item clickable has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
+        <div class="history-item clickable has-checkbox ${isSelected}" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
           <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
           <div class="history-content">
             <div class="history-query">${escapeHtml(item.query)}</div>
@@ -845,10 +1051,21 @@ function renderHistory() {
       .slice(-10)
       .reverse()
       .map(item => {
-        const statusLabel = item.status === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' :
-          item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' :
-            item.status === 'processing' ? '<span class="status-badge processing">Processing</span>' :
-              item.status === 'completed' ? '<span class="status-badge completed">Completed</span>' : '';
+        // Calculate progress percentage for status badge
+        let progressPct = 0;
+        if (item.isBulk && item.bulkData) {
+          const completed = item.bulkData.completedQueries || 0;
+          const total = item.bulkData.totalQueries || 0;
+          progressPct = item.bulkData.progressPercent !== undefined
+            ? item.bulkData.progressPercent
+            : (total > 0 ? Math.round((completed / total) * 100) : 0);
+        }
+
+        // Status badge now includes percentage
+        const statusLabel = item.status === 'cancelled' ? `<span class="status-badge cancelled">Cancelled ${progressPct}%</span>` :
+          item.status === 'paused' ? `<span class="status-badge paused">Paused ${progressPct}%</span>` :
+            item.status === 'processing' ? `<span class="status-badge processing">Processing ${progressPct}%</span>` :
+              item.status === 'completed' ? `<span class="status-badge completed">Completed</span>` : '';
         const resumeBtn = (item.status === 'cancelled' || item.status === 'paused') && item.isBulk ?
           `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -857,6 +1074,7 @@ function renderHistory() {
           </button>` : '';
 
         const isChecked = selectedHistoryItems.has(item.timestamp) ? 'checked' : '';
+        const isSelected = window.currentDisplayedRecord && window.currentDisplayedRecord.timestamp === item.timestamp ? 'selected' : '';
         const eyeIcon = item.isBulk ?
           `<button class="btn-icon view-queries" title="View queries" data-timestamp="${item.timestamp}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -881,7 +1099,7 @@ function renderHistory() {
         }
 
         return `
-        <div class="history-item has-checkbox" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}" style="flex-wrap: nowrap; overflow: hidden;">
+        <div class="history-item has-checkbox ${isSelected}" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}" style="flex-wrap: nowrap; overflow: hidden;">
           <input type="checkbox" class="history-checkbox" data-timestamp="${item.timestamp}" ${isChecked}>
           <div class="history-content" style="min-width: 0; flex: 1; overflow: hidden;">
             <div class="history-query" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -976,154 +1194,8 @@ function renderHistory() {
     updateStats(combinedData);
   }
 
-  // Add checkbox change handlers for all history items (regular and bulk sessions)
-  document.querySelectorAll('.history-checkbox').forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      e.stopPropagation();
-      const timestamp = cb.dataset.timestamp;
-      const record = history.searches.find(s => s.timestamp === timestamp);
-
-      if (cb.checked) {
-        selectedHistoryItems.add(timestamp);
-        // Auto-uncheck opposite section
-        uncheckOppositeSection(record);
-      } else {
-        selectedHistoryItems.delete(timestamp);
-      }
-
-      updateSelectionUI();
-      updateLiveResultsFromSelection();
-      updateStatsFromSelection();
-
-      // Update regular history select all link text based only on regular history items
-      const allCheckboxes = document.querySelectorAll('.history-checkbox');
-      const regularCheckboxes = Array.from(allCheckboxes).filter(cb => {
-        const record = history.searches.find(s => s.timestamp === cb.dataset.timestamp);
-        return record && !record.isBulk; // Only regular history items, not bulk
-      });
-      const regularAllChecked = regularCheckboxes.length > 0 && regularCheckboxes.every(cb => cb.checked);
-      selectAllLink.textContent = regularAllChecked ? 'Deselect All' : 'Select All';
-
-      // Update bulk sessions select all link text based only on bulk session items
-      const bulkCheckboxes = Array.from(allCheckboxes).filter(cb => {
-        const record = history.searches.find(s => s.timestamp === cb.dataset.timestamp);
-        return record && record.isBulk; // Only bulk session items
-      });
-      const bulkAllChecked = bulkCheckboxes.length > 0 && bulkCheckboxes.every(cb => cb.checked);
-      bulkSelectAllLink.textContent = bulkAllChecked ? 'Deselect All' : 'Select All';
-    });
-  });
-
-  // Add click handlers for export history buttons (distinguishing bulk session vs regular history exports)
-  document.querySelectorAll('.export-history').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation(); // Prevent the click from bubbling to the item click handler
-      const historyItem = e.target.closest('.history-item');
-      const query = historyItem.dataset.query;
-      const timestamp = historyItem.dataset.timestamp;
-
-      // Find the matching history record
-      const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
-      if (!record || !record.data) return;
-
-      // Check the number of selected items to determine export behavior
-      const selectedCount = selectedHistoryItems.size;
-
-      // If this is a bulk session record, always show the export options modal
-      if (record.isBulk) {
-        // Store the record for export when user chooses an option
-        window.currentExportRecord = record;
-        // Show export options modal for bulk records
-        document.getElementById('exportOptionsModal').classList.add('show');
-      } else {
-        // For regular history records:
-        // - Show options modal if 2 or more records are selected
-        // - Export directly if only this one is selected (or none)
-        if (selectedCount >= 2) {
-          // Multiple records selected, show options modal
-          document.getElementById('exportOptionsModal').classList.add('show');
-        } else {
-          // Only one record (or none) selected, export directly
-          exportSingleRecord(record);
-        }
-      }
-    });
-  });
-
-  // Add click handlers for all history items (regular and bulk sessions) to display results
-  document.querySelectorAll('.history-item.clickable, .history-item.has-checkbox').forEach(item => {
-    item.addEventListener('click', (e) => {
-      // Don't trigger if clicking on checkbox or action buttons
-      if (e.target.classList.contains('history-checkbox') || e.target.closest('.history-actions')) return;
-
-      const query = item.dataset.query;
-      const timestamp = item.dataset.timestamp;
-
-      // Find the matching history record
-      const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
-      if (!record || !record.data) return;
-
-      // Display the results
-      scrapedData = record.data;
-      renderResults(record.data);
-
-      // Track the currently displayed record for export button functionality
-      window.currentDisplayedRecord = record;
-
-      // Update stats to show data from the selected record
-      updateStats(record.data);
-
-      // Update progress display for bulk sessions
-      if (record.isBulk && record.bulkData) {
-        const completed = record.bulkData.completedQueries || 0;
-        const total = record.bulkData.totalQueries || 0;
-        const progressPct = record.bulkData.progressPercent !== undefined
-          ? record.bulkData.progressPercent
-          : (total > 0 ? Math.round((completed / total) * 100) : 0);
-
-        // Update progress bar
-        progressFill.style.width = `${progressPct}%`;
-        if (progressPercent) progressPercent.textContent = `${progressPct}%`;
-
-        // Update progress text based on status
-        if (record.status === 'completed') {
-          progressText.textContent = `✓ Completed: ${record.data.length} businesses from ${total} locations`;
-          progressText.style.color = 'var(--success)';
-        } else if (record.status === 'paused') {
-          progressText.textContent = `⏸ Paused: ${record.data.length} businesses (${completed}/${total} queries completed)`;
-          progressText.style.color = 'var(--warning)';
-        } else if (record.status === 'processing') {
-          progressText.textContent = `⏳ Processing: ${completed}/${total} queries`;
-          progressText.style.color = 'var(--text-primary)';
-        } else {
-          progressText.textContent = `${record.data.length} businesses (${completed}/${total} queries)`;
-          progressText.style.color = 'var(--text-primary)';
-        }
-
-        // Show bulk progress section
-        document.getElementById('bulkProgress').style.display = 'block';
-        document.getElementById('fastBulkProgress').style.display = 'none';
-        document.getElementById('currentQuery').textContent = completed;
-        document.getElementById('totalQueries').textContent = total;
-        document.getElementById('currentSearchQuery').textContent = record.bulkData.niche || '';
-      } else {
-        // For non-bulk records, just show simple status
-        progressText.textContent = `${record.data.length} results`;
-        progressText.style.color = 'var(--text-primary)';
-        progressFill.style.width = '100%';
-        if (progressPercent) progressPercent.textContent = '100%';
-        document.getElementById('bulkProgress').style.display = 'none';
-        document.getElementById('fastBulkProgress').style.display = 'none';
-      }
-
-      // Scroll to results section
-      document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
-
-      // Highlight the selected history item
-      document.querySelectorAll('.history-item').forEach(i => i.classList.remove('selected'));
-      item.classList.add('selected');
-    });
-  });
+  // NOTE: Checkbox, export, and delete handlers are now handled by event delegation
+  // in setupHistoryEventDelegation() to prevent duplicate listeners
 
   // Add click handlers for resume buttons (for bulk sessions)
   document.querySelectorAll('.resume-bulk').forEach(btn => {
@@ -1260,32 +1332,6 @@ function renderHistory() {
       queryList += '</div>';
 
       showQueryStatusModal(record.query, queryList, timestamp);
-    });
-  });
-
-  // Add click handlers for delete buttons in both regular and bulk history items
-  document.querySelectorAll('.delete-history').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const timestamp = btn.dataset.timestamp;
-
-      // Find the matching history record
-      const record = history.searches.find(s => s.timestamp === timestamp);
-      if (!record) return;
-
-      // Confirm deletion
-      if (confirm(`Are you sure you want to delete this record?\n\nQuery: ${record.query}`)) {
-        // Remove from history
-        history.searches = history.searches.filter(s => s.timestamp !== timestamp);
-
-        // Save and refresh UI
-        window.electronAPI.saveHistory(history)
-          .then(() => {
-            renderHistory();
-            updateStats();
-          })
-          .catch(err => console.error('Error saving history after deletion:', err));
-      }
     });
   });
 }
