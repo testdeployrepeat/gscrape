@@ -817,18 +817,18 @@ function renderHistory() {
             <div class="history-meta">
               ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
             </div>
-          </div>
-          <div class="history-actions">
-            <button class="btn-icon export-history" title="Export this record">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
-              </svg>
-            </button>
-            <button class="btn-icon delete-history" title="Delete this record" data-timestamp="${item.timestamp}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-              </svg>
-            </button>
+            <div class="history-actions" style="margin-top: 8px;">
+              <button class="btn-icon export-history" title="Export this record">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
+                </svg>
+              </button>
+              <button class="btn-icon delete-history" title="Delete this record" data-timestamp="${item.timestamp}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       `;
@@ -847,7 +847,8 @@ function renderHistory() {
       .map(item => {
         const statusLabel = item.status === 'cancelled' ? '<span class="status-badge cancelled">Cancelled</span>' :
           item.status === 'paused' ? '<span class="status-badge paused">Paused</span>' :
-            item.status === 'processing' ? '<span class="status-badge processing">Processing</span>' : '';
+            item.status === 'processing' ? '<span class="status-badge processing">Processing</span>' :
+              item.status === 'completed' ? '<span class="status-badge completed">Completed</span>' : '';
         const resumeBtn = (item.status === 'cancelled' || item.status === 'paused') && item.isBulk ?
           `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -869,10 +870,14 @@ function renderHistory() {
         if (item.isBulk && item.bulkData) {
           // Show just the niche name
           queryDisplay = escapeHtml(item.query.replace(/^Bulk: /, '').replace(/\s*\(\d+\/\d+\s*completed\)$/i, ''));
-          // Create separate progress label
+          // Create separate progress label with percentage
           const completed = item.bulkData.completedQueries || 0;
           const total = item.bulkData.totalQueries || 0;
-          progressLabel = `<div style="font-size: 11px; color: var(--text-tertiary); margin-top: 2px;">${completed}/${total} queries completed</div>`;
+          // Use saved progressPercent if available, otherwise calculate it
+          const progressPct = item.bulkData.progressPercent !== undefined
+            ? item.bulkData.progressPercent
+            : (total > 0 ? Math.round((completed / total) * 100) : 0);
+          progressLabel = `<div style="font-size: 11px; color: var(--text-tertiary); margin-top: 2px;">${completed}/${total} queries completed (${progressPct}%)</div>`;
         }
 
         return `
@@ -887,20 +892,20 @@ function renderHistory() {
             <div class="history-meta" style="margin-top: 4px;">
               ${item.count} results • ${new Date(item.timestamp).toLocaleString()}
             </div>
-          </div>
-          <div class="history-actions" style="flex-shrink: 0;">
-            ${eyeIcon}
-            ${resumeBtn}
-            <button class="btn-icon export-history" title="Export this record">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
-              </svg>
-            </button>
-            <button class="btn-icon delete-history" title="Delete this record" data-timestamp="${item.timestamp}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-              </svg>
-            </button>
+            <div class="history-actions" style="margin-top: 8px;">
+              ${eyeIcon}
+              ${resumeBtn}
+              <button class="btn-icon export-history" title="Export this record">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
+                </svg>
+              </button>
+              <button class="btn-icon delete-history" title="Delete this record" data-timestamp="${item.timestamp}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       `;
@@ -1067,6 +1072,49 @@ function renderHistory() {
 
       // Update stats to show data from the selected record
       updateStats(record.data);
+
+      // Update progress display for bulk sessions
+      if (record.isBulk && record.bulkData) {
+        const completed = record.bulkData.completedQueries || 0;
+        const total = record.bulkData.totalQueries || 0;
+        const progressPct = record.bulkData.progressPercent !== undefined
+          ? record.bulkData.progressPercent
+          : (total > 0 ? Math.round((completed / total) * 100) : 0);
+
+        // Update progress bar
+        progressFill.style.width = `${progressPct}%`;
+        if (progressPercent) progressPercent.textContent = `${progressPct}%`;
+
+        // Update progress text based on status
+        if (record.status === 'completed') {
+          progressText.textContent = `✓ Completed: ${record.data.length} businesses from ${total} locations`;
+          progressText.style.color = 'var(--success)';
+        } else if (record.status === 'paused') {
+          progressText.textContent = `⏸ Paused: ${record.data.length} businesses (${completed}/${total} queries completed)`;
+          progressText.style.color = 'var(--warning)';
+        } else if (record.status === 'processing') {
+          progressText.textContent = `⏳ Processing: ${completed}/${total} queries`;
+          progressText.style.color = 'var(--text-primary)';
+        } else {
+          progressText.textContent = `${record.data.length} businesses (${completed}/${total} queries)`;
+          progressText.style.color = 'var(--text-primary)';
+        }
+
+        // Show bulk progress section
+        document.getElementById('bulkProgress').style.display = 'block';
+        document.getElementById('fastBulkProgress').style.display = 'none';
+        document.getElementById('currentQuery').textContent = completed;
+        document.getElementById('totalQueries').textContent = total;
+        document.getElementById('currentSearchQuery').textContent = record.bulkData.niche || '';
+      } else {
+        // For non-bulk records, just show simple status
+        progressText.textContent = `${record.data.length} results`;
+        progressText.style.color = 'var(--text-primary)';
+        progressFill.style.width = '100%';
+        if (progressPercent) progressPercent.textContent = '100%';
+        document.getElementById('bulkProgress').style.display = 'none';
+        document.getElementById('fastBulkProgress').style.display = 'none';
+      }
 
       // Scroll to results section
       document.querySelector('.results-section').scrollIntoView({ behavior: 'smooth' });
@@ -1752,6 +1800,48 @@ async function startBulkScraping(resumedTimestamp = null) {
     return;
   }
 
+  // =====================================================
+  // STEP 1: Check for previously scraped locations FIRST
+  // (before creating any records or changing button state)
+  // =====================================================
+
+  // Check for previously scraped locations in history (only for new operations, not resumed)
+  if (!resumedTimestamp) {
+    const previouslyScrapedLocations = new Set();
+    history.searches.forEach(record => {
+      if (record.isBulk && record.bulkData && record.bulkData.queries) {
+        record.bulkData.queries.forEach(loc => previouslyScrapedLocations.add(loc.toLowerCase()));
+      }
+    });
+
+    // Find duplicates in current bulk queries
+    const duplicates = bulkQueries.filter(loc => previouslyScrapedLocations.has(loc.toLowerCase()));
+
+    if (duplicates.length > 0) {
+      const userChoice = await showDuplicateModal(duplicates);
+
+      if (userChoice === 'cancel') {
+        // User cancelled - don't create any record, don't change button state
+        return;
+      }
+
+      if (userChoice === 'skip') {
+        // Filter out duplicates from bulkQueries
+        bulkQueries = bulkQueries.filter(loc => !previouslyScrapedLocations.has(loc.toLowerCase()));
+        if (bulkQueries.length === 0) {
+          showCustomAlert('No New Locations', 'All locations have already been scraped. Nothing to do.');
+          return;
+        }
+      }
+      // If 'scrapeall', continue with all queries
+    }
+  }
+
+  // =====================================================
+  // STEP 2: Now proceed with creating the bulk session
+  // (user has confirmed to proceed past duplicate check)
+  // =====================================================
+
   let timestamp;
   if (resumedTimestamp) {
     // This is a resumed operation, use the existing timestamp
@@ -1831,6 +1921,10 @@ async function startBulkScraping(resumedTimestamp = null) {
     };
   }
 
+  // =====================================================
+  // STEP 3: Now update the UI to show scraping state
+  // =====================================================
+
   // Update header button to Stop
   isScrapingActive = true;
   headerStartBtn.innerHTML = `
@@ -1854,45 +1948,16 @@ async function startBulkScraping(resumedTimestamp = null) {
   // Clear old resume key if exists (no longer used for resume prompts)
   localStorage.removeItem(resumeKey);
 
-  // Check for previously scraped locations in history
-  const previouslyScrapedLocations = new Set();
-  history.searches.forEach(record => {
-    if (record.isBulk && record.bulkData && record.bulkData.queries) {
-      record.bulkData.queries.forEach(loc => previouslyScrapedLocations.add(loc.toLowerCase()));
-    }
-  });
-
-  // Find duplicates in current bulk queries
-  const duplicates = bulkQueries.filter(loc => previouslyScrapedLocations.has(loc.toLowerCase()));
-
-  if (duplicates.length > 0) {
-    const userChoice = await showDuplicateModal(duplicates);
-
-    if (userChoice === 'cancel') {
-      isScrapingActive = false;
-      progressSection.style.display = 'none';
-      return;
-    }
-
-    if (userChoice === 'skip') {
-      // Filter out duplicates from bulkQueries
-      bulkQueries = bulkQueries.filter(loc => !previouslyScrapedLocations.has(loc.toLowerCase()));
-      if (bulkQueries.length === 0) {
-        showCustomAlert('No New Locations', 'All locations have already been scraped. Nothing to do.');
-        isScrapingActive = false;
-        progressSection.style.display = 'none';
-        return;
-      }
-      totalQueries.textContent = bulkQueries.length;
-    }
-    // If 'scrapeall', continue with all queries
-  }
-
   // Use startIndex that was already calculated above (line 1582)
 
   // Start timer
   startTimer();
   const queryStartTimes = [];
+
+  // Track query index at outer scope so it's available after scraping ends
+  // (used by both fast and normal modes)
+  let currentQueryIndex = startIndex;
+
   // Check if running in fast mode for parallel processing
   if (selectedSpeed === 'fast' || selectedSpeed === 'ultra-fast') {
     // Show fast mode progress and hide regular bulk progress
@@ -1915,7 +1980,7 @@ async function startBulkScraping(resumedTimestamp = null) {
     const parallelLimit = Math.min(savedParallelLimit > 0 ? savedParallelLimit : defaultParallelLimit, maxSafeParallelLimit);
 
     // Queue-based parallel processing: maintain constant concurrency
-    let currentQueryIndex = startIndex;
+    // Note: currentQueryIndex is defined in outer scope
     let completedQueries = 0;
     const workers = [];
 
@@ -2126,6 +2191,11 @@ async function startBulkScraping(resumedTimestamp = null) {
         processingRecord.status = 'completed'; // Use 'completed' not 'complete'
         processingRecord.endTime = Date.now();
         processingRecord.query = `Bulk: ${niche} (${bulkQueries.length}/${bulkQueries.length} completed)`;
+        // Save 100% progress for completed operations
+        if (processingRecord.bulkData) {
+          processingRecord.bulkData.progressPercent = 100;
+          processingRecord.bulkData.completedQueries = bulkQueries.length;
+        }
 
         // Update final progress display
         document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses from ${bulkQueries.length} locations`;
@@ -2309,7 +2379,47 @@ async function startBulkScraping(resumedTimestamp = null) {
       // Save progress
       localStorage.setItem(resumeKey, (i + 1).toString());
 
+      // Update outer-scope currentQueryIndex for progress tracking
+      currentQueryIndex = i + 1;
+
       await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Check if normal mode completed all queries successfully
+    if (isScrapingActive && currentQueryIndex >= bulkQueries.length) {
+      // All queries completed successfully in normal mode
+      const processingRecordIndex = history.searches.findIndex(item =>
+        item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+      );
+
+      if (processingRecordIndex !== -1) {
+        const processingRecord = history.searches[processingRecordIndex];
+
+        // Mark as complete
+        processingRecord.status = 'completed';
+        processingRecord.endTime = Date.now();
+        processingRecord.query = `Bulk: ${niche} (${bulkQueries.length}/${bulkQueries.length} completed)`;
+        // Save 100% progress for completed operations
+        if (processingRecord.bulkData) {
+          processingRecord.bulkData.progressPercent = 100;
+          processingRecord.bulkData.completedQueries = bulkQueries.length;
+        }
+
+        // Update final progress display
+        progressText.textContent = `✓ Completed! Scraped ${scrapedData.length} businesses from ${bulkQueries.length} locations`;
+        progressText.style.color = 'var(--success)';
+        progressFill.style.width = '100%';
+        if (progressPercent) progressPercent.textContent = '100%';
+
+        // Save final history
+        window.electronAPI.saveHistory(history);
+        renderHistory();
+
+        bulkOperationCompleted = true;
+      }
+
+      // Clear resume data
+      localStorage.removeItem(resumeKey);
     }
   }
 
@@ -2337,15 +2447,26 @@ async function startBulkScraping(resumedTimestamp = null) {
     localStorage.removeItem(resumeKey);
   }
 
-  progressFill.style.width = '100%';
+  // Calculate actual progress percentage based on completed queries
+  const totalQueriesCount = bulkQueries.length;
+  const completedQueriesCount = currentIndex;
+  const actualProgressPercent = totalQueriesCount > 0
+    ? Math.round((completedQueriesCount / totalQueriesCount) * 100)
+    : 0;
 
   // Skip creating paused session if operation completed successfully
   if (bulkOperationCompleted) {
-    // Operation completed successfully, cleanup already done
+    // Operation completed successfully - show 100%
+    progressFill.style.width = '100%';
+    if (progressPercent) progressPercent.textContent = '100%';
     document.getElementById('bulkProgress').style.display = 'block';
     document.getElementById('fastBulkProgress').style.display = 'none';
     return;
   }
+
+  // Show actual progress (not 100%) when stopped mid-way
+  progressFill.style.width = `${actualProgressPercent}%`;
+  if (progressPercent) progressPercent.textContent = `${actualProgressPercent}%`;
 
   // Only treat as cancelled if we didn't complete all queries AND wasn't completed
   // (wasCancelled is defined above as !isScrapingActive which is always true here, so check currentQueryIndex)
@@ -2389,6 +2510,9 @@ async function startBulkScraping(resumedTimestamp = null) {
       history.searches[processingRecordIndex].bulkData.niche = niche;
       history.searches[processingRecordIndex].bulkData.remainingQueries = remainingQueries;
       history.searches[processingRecordIndex].bulkData.completedCount = actualCompletedCount;
+      // Save progress percentage for display when viewing this session later
+      const savedProgressPercent = Math.round((actualCompletedCount / history.searches[processingRecordIndex].bulkData.totalQueries) * 100);
+      history.searches[processingRecordIndex].bulkData.progressPercent = savedProgressPercent;
     }
 
     window.electronAPI.saveHistory(history);

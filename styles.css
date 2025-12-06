@@ -1392,6 +1392,13 @@ button.support-link {
   border: 1px solid var(--success);
 }
 
+.status-badge.completed {
+  background: rgba(134, 239, 172, 0.25);
+  /* Lighter green background */
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+}
+
 /* Resume Button */
 .resume-bulk {
   background: var(--accent-primary) !important;
@@ -1608,7 +1615,6 @@ button.support-link {
 
 /* Checkbox styling for history items */
 .history-checkbox {
-  margin-right: 12px;
   cursor: pointer;
   width: 18px;
   height: 18px;
@@ -1675,8 +1681,9 @@ input[type="number"]#fastModeParallelScraping:focus {
 
 .history-item.has-checkbox {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
 }
 
 /* Setting header row with label on left and controls on right */
