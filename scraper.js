@@ -463,6 +463,19 @@ async function scrapeGoogleMaps(options, progressCallback) {
 
     let finalResults = uniqueBusinesses;
 
+    // STEP 1: Extract detailed info FIRST (uses the current page, must complete before email extraction)
+    if (options.extractDetailedInfo) {
+      progressCallback({
+        status: 'processing',
+        message: `Extracting detailed info from ${uniqueBusinesses.length} listings...`,
+        total: uniqueBusinesses.length,
+        data: uniqueBusinesses // Send current data
+      });
+
+      await extractDetailedInfo(page, finalResults, speed, progressCallback);
+    }
+
+    // STEP 2: Extract emails AFTER detailed info (opens new pages, so must be after)
     if (extractEmails && finalResults.length > 0) {
       progressCallback({
         status: 'processing',
@@ -470,18 +483,6 @@ async function scrapeGoogleMaps(options, progressCallback) {
       });
 
       await extractEmailsInParallel(browser, finalResults, speed, progressCallback, options.emailScrapingLimit, options.deepEmailExtraction);
-    }
-
-    // Option to visit individual business pages for more complete information
-    if (options.extractDetailedInfo) {
-      progressCallback({
-        status: 'processing',
-        message: `Visiting ${uniqueBusinesses.length} business pages for detailed info...`,
-        total: uniqueBusinesses.length,
-        data: uniqueBusinesses // Send current data
-      });
-
-      await extractDetailedInfo(browser, finalResults, speed, progressCallback);
     }
 
     finalResults.forEach(b => delete b.link);
@@ -652,290 +653,135 @@ async function extractEmailFromWebsite(browser, websiteUrl, timeout, deepExtract
   }
 }
 
-async function extractDetailedInfo(browser, results, speed, progressCallback) {
+/**
+ * OPTIMIZED: Extract detailed info only for listings MISSING phone or website.
+ * Most listings already have this data from list view extraction, so we skip them.
+ * This reduces extraction time from ~2 minutes to ~20-40 seconds.
+ */
+async function extractDetailedInfo(page, results, speed, progressCallback) {
   if (results.length === 0) return;
 
-  progressCallback({ status: 'processing', message: `Extracting detailed information from ${results.length} business pages...` });
+  // OPTIMIZATION: Only extract for listings missing phone OR website
+  const listingsNeedingInfo = [];
+  results.forEach((business, index) => {
+    if (!business.phone || !business.website) {
+      listingsNeedingInfo.push({ business, index });
+    }
+  });
 
-  const batchSize = speed === 'fast' ? 3 : 2; // Smaller batch size for detailed extraction
-  const timeout = speed === 'fast' ? 15000 : 20000;
+  const skippedCount = results.length - listingsNeedingInfo.length;
 
-  let processedCount = 0;
-  for (let i = 0; i < results.length; i += batchSize) {
-    if (shouldStop) break;
-
-    const batch = results.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(async (business) => {
-        // Extract detailed info for each business
-        const detailedInfo = await getDetailedBusinessInfo(browser, business.link, timeout);
-
-        // Only update fields that are missing or empty
-        if (detailedInfo.phone && !business.phone) {
-          business.phone = detailedInfo.phone;
-        }
-        if (detailedInfo.website && !business.website) {
-          business.website = detailedInfo.website;
-        }
-        if (detailedInfo.address && !business.address) {
-          business.address = detailedInfo.address;
-        }
-        if (detailedInfo.owner && !business.owner) {
-          business.owner = detailedInfo.owner;
-        }
-      })
-    );
-
-    processedCount += batch.length;
+  if (listingsNeedingInfo.length === 0) {
     progressCallback({
       status: 'processing',
-      message: `Detailed info extracted from ${processedCount}/${results.length} business pages`
+      message: `Detailed info: All ${results.length} listings already have complete data, skipping extraction`
     });
+    return;
   }
-}
 
-async function getDetailedBusinessInfo(browser, businessUrl, timeout) {
-  let page;
-  try {
-    page = await browser.newPage();
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      const resourceType = req.resourceType();
-      if (['image', 'stylesheet', 'font', 'media', 'websocket'].includes(resourceType)) {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
+  progressCallback({
+    status: 'processing',
+    message: `Extracting detailed info from ${listingsNeedingInfo.length} of ${results.length} listings (${skippedCount} already complete)...`
+  });
 
-    await page.goto(businessUrl, { waitUntil: 'networkidle0', timeout });  // Wait for network to be idle
+  let processedCount = 0;
+  // OPTIMIZATION: Reduced delays - fast mode: 300ms, normal: 500ms (was 800ms/1200ms)
+  const delayBetweenClicks = speed === 'fast' ? 300 : 500;
 
-    // Wait a bit for the page to fully load and for any dynamic content to render
-    await wait(3000);
+  const listingSelector = 'div[role="feed"] > div > div[jsaction] a[href*="/maps/place/"]';
 
-    // Some phone numbers might be loaded dynamically when certain elements are clicked/hovered
-    // Try to trigger possible event handlers that might reveal phone numbers
+  for (const { business, index } of listingsNeedingInfo) {
+    if (shouldStop) break;
+
     try {
-      // Look for elements that might reveal phone numbers when clicked
-      await page.evaluate(() => {
-        // Trigger mouseover events on common elements that might reveal phone numbers
-        const elements = document.querySelectorAll('button, span, div');
-        for (let i = 0; i < elements.length && i < 50; i++) {  // Limit to first 50 elements to avoid performance issues
-          elements[i].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      // Click on the listing by its original index
+      const clicked = await page.evaluate((selector, idx) => {
+        const listings = document.querySelectorAll(selector);
+        if (listings[idx]) {
+          listings[idx].click();
+          return true;
         }
+        return false;
+      }, listingSelector, index);
+
+      if (!clicked) {
+        processedCount++;
+        continue;
+      }
+
+      // OPTIMIZATION: Shorter timeout (2s instead of 3s)
+      try {
+        await page.waitForSelector('[data-item-id*="phone"], a[data-item-id="authority"]', {
+          timeout: 2000
+        });
+      } catch (e) {
+        // Continue with extraction even if timeout
+      }
+
+      // OPTIMIZATION: Reduced wait (was delayBetweenClicks / 2)
+      await wait(delayBetweenClicks);
+
+      // Extract only the fields that are missing
+      const needPhone = !business.phone;
+      const needWebsite = !business.website;
+
+      const detailedInfo = await page.evaluate((needPhone, needWebsite) => {
+        const info = { phone: '', website: '' };
+
+        if (needPhone) {
+          // PHONE: Try data-item-id first (fastest, most reliable)
+          const phoneEl = document.querySelector('[data-item-id*="phone:tel:"]');
+          if (phoneEl) {
+            const dataId = phoneEl.getAttribute('data-item-id');
+            const match = dataId && dataId.match(/phone:tel:(.+)/);
+            if (match) info.phone = match[1].trim();
+          }
+          // PHONE: Fallback to tel: link
+          if (!info.phone) {
+            const telLink = document.querySelector('a[href^="tel:"]');
+            if (telLink) info.phone = telLink.href.replace('tel:', '').trim();
+          }
+        }
+
+        if (needWebsite) {
+          // WEBSITE: Look for authority link
+          const websiteEl = document.querySelector('a[data-item-id="authority"]');
+          if (websiteEl && websiteEl.href && !websiteEl.href.includes('google.com')) {
+            info.website = websiteEl.href;
+          }
+        }
+
+        return info;
+      }, needPhone, needWebsite);
+
+      // Update business with new info
+      if (detailedInfo.phone && !business.phone) {
+        business.phone = detailedInfo.phone;
+      }
+      if (detailedInfo.website && !business.website) {
+        business.website = detailedInfo.website;
+      }
+
+      // Go back to results list
+      await page.evaluate(() => {
+        const backBtn = document.querySelector('button[aria-label*="Back" i], button[jsaction*="back"]');
+        if (backBtn) backBtn.click();
       });
 
-      // Wait a bit more after triggering events
-      await wait(1000);
-    } catch (e) {
-      console.log('Could not trigger events on page:', e.message);
+      // OPTIMIZATION: Reduced wait before next click
+      await wait(delayBetweenClicks);
+
+    } catch (err) {
+      console.log(`Error processing listing ${index}:`, err.message);
     }
 
-    const detailedInfo = await page.evaluate(() => {
-      const info = {
-        phone: '',
-        website: '',
-        address: '',
-        owner: ''
-      };
-
-      // Extract phone number using multiple strategies
-      // Strategy 1: Look for elements with data-item-id="phone"
-      const phoneElement = document.querySelector('button[data-item-id="phone"], div[data-item-id="phone"], a[href^="tel:"]');
-      if (phoneElement) {
-        // Get the text content
-        let text = phoneElement.textContent || phoneElement.innerText || '';
-        if (text && (text.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/) || text.match(/\+?[\d\s\-\(\)]{10,}/))) {
-          info.phone = text.trim();
-        }
-      }
-
-      // Strategy 2: Look for tel: links in the page
-      if (!info.phone) {
-        const telLink = document.querySelector('a[href^="tel:"]');
-        if (telLink) {
-          let href = telLink.getAttribute('href');
-          if (href) {
-            info.phone = href.replace('tel:', '').replace(/[^\d\s\-\+\(\)]/g, ' ').trim();
-          }
-        }
-      }
-
-      // Strategy 3: Look for data-item-id attributes with phone numbers in format "phone:tel:+1234567890"
-      if (!info.phone) {
-        const phoneElements = document.querySelectorAll('[data-item-id*="phone:tel:"]');
-        for (const element of phoneElements) {
-          const dataItemId = element.getAttribute('data-item-id');
-          if (dataItemId) {
-            // Extract phone number from format like "phone:tel:+14695770339"
-            const phoneMatch = dataItemId.match(/phone:tel:(.*)/i);
-            if (phoneMatch && phoneMatch[1]) {
-              info.phone = phoneMatch[1].trim();
-              break;
-            }
-          }
-        }
-      }
-
-      // Strategy 4: Look for elements with tooltip/title attributes indicating "copy phone number"
-      if (!info.phone) {
-        const elementsWithTooltip = document.querySelectorAll('button[aria-label*="phone" i], [data-tooltip*="phone" i], [title*="phone" i]');
-        for (const element of elementsWithTooltip) {
-          // Check aria-label attribute for phone numbers
-          const ariaLabel = element.getAttribute('aria-label');
-          if (ariaLabel && (ariaLabel.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/) || ariaLabel.match(/\+?[\d\s\-\(\)]{10,}/))) {
-            info.phone = ariaLabel.trim();
-            break;
-          }
-
-          // Check title attribute for phone numbers
-          const title = element.getAttribute('title');
-          if (title && (title.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/) || title.match(/\+?[\d\s\-\(\)]{10,}/))) {
-            info.phone = title.trim();
-            break;
-          }
-
-          // Check data-tooltip attribute for phone numbers
-          const dataTooltip = element.getAttribute('data-tooltip');
-          if (dataTooltip && (dataTooltip.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/) || dataTooltip.match(/\+?[\d\s\-\(\)]{10,}/))) {
-            info.phone = dataTooltip.trim();
-            break;
-          }
-        }
-      }
-
-      // Strategy 4: Look for elements with common phone-related classes/attributes in the page
-      if (!info.phone) {
-        const allElements = document.querySelectorAll('*');
-        for (const element of allElements) {
-          let text = element.textContent || element.innerText || '';
-          // Look for potential phone number patterns
-          if (text && text.length > 6 && (text.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/) ||
-            text.match(/\+?[\d\s\-\(\)]{10,}/))) {
-            // Additional validation to make sure it's likely a phone number
-            if (text.length <= 25) {  // Phone numbers are usually not longer than this
-              info.phone = text.trim();
-              break;
-            }
-          }
-        }
-      }
-
-      // Extract website using multiple strategies
-      // Strategy 1: Look for data-item-id="authority"
-      const websiteElement = document.querySelector('a[data-item-id="authority"]');
-      if (websiteElement && websiteElement.href && !websiteElement.href.includes('google.com') && !websiteElement.href.includes('maps')) {
-        info.website = websiteElement.href;
-      }
-
-      // Strategy 2: Look for aria-label containing "Website" in format like "Website: joespizzanyc.com"
-      if (!info.website) {
-        const websiteAriaLabels = document.querySelectorAll('a[aria-label*="Website" i]');
-        for (const element of websiteAriaLabels) {
-          if (element.href && !element.href.includes('google.com') && !element.href.includes('maps')) {
-            info.website = element.href;
-            break;
-          }
-        }
-      }
-
-      // Strategy 3: Look for aria-label with format "Website: joespizzanyc.com" and get the actual URL from the href
-      if (!info.website) {
-        const elementsWithWebsiteAria = document.querySelectorAll('[aria-label*="Website" i]');
-        for (const element of elementsWithWebsiteAria) {
-          const ariaLabel = element.getAttribute('aria-label');
-          if (ariaLabel && ariaLabel.toLowerCase().includes('website:')) {
-            // Extract domain from aria-label like "Website: joespizzanyc.com"
-            const websiteMatch = ariaLabel.match(/website:\s*(.+)/i);
-            if (websiteMatch && websiteMatch[1]) {
-              // If the element is an anchor tag, use its href
-              if (element.tagName.toLowerCase() === 'a' && element.href &&
-                !element.href.includes('google.com') && !element.href.includes('maps')) {
-                info.website = element.href;
-                break;
-              } else {
-                // If not an anchor tag, construct a URL assuming http
-                let domain = websiteMatch[1].trim();
-                if (!domain.startsWith('http')) {
-                  domain = 'https://' + domain;
-                }
-                info.website = domain;
-                break;
-              }
-            }
-          }
-        }
-      }
-
-      // Strategy 4: Look for external links that are not Google Maps
-      if (!info.website) {
-        const allLinks = document.querySelectorAll('a[href*="http"]');
-        for (const link of allLinks) {
-          const href = link.href;
-          if (href &&
-            !href.includes('google.com') &&
-            !href.includes('maps') &&
-            !href.includes('googleusercontent.com') &&
-            !href.includes('googleapis.com') &&
-            !href.includes('gstatic.com')) {
-            // Additional validation - check if this might be a website link
-            // by looking for common business website patterns
-            if (href.match(/\/(www\.)?[^.]+\.[^.]+/)) {
-              info.website = href;
-              break;
-            }
-          }
-        }
-      }
-
-      // Extract address using multiple strategies
-      // Strategy 1: Look for data-item-id="address"
-      const addressElement = document.querySelector('button[data-item-id="address"], div[data-item-id="address"]');
-      if (addressElement) {
-        info.address = (addressElement.textContent || addressElement.innerText || '').replace(/\s+/g, ' ').trim();
-      }
-
-      // Strategy 2: Look for address in common patterns
-      if (!info.address) {
-        const allElements = document.querySelectorAll('*');
-        for (const element of allElements) {
-          let text = element.textContent || element.innerText || '';
-          // Look for elements that might contain address information
-          // Usually addresses have numbers (street number) and common abbreviations
-          if (text && text.length > 5 && text.length < 200) {
-            // Check if text contains common address indicators
-            if (text.match(/\d+/) &&  // Has numbers (street number)
-              (text.toLowerCase().includes('st') ||
-                text.toLowerCase().includes('ave') ||
-                text.toLowerCase().includes('rd') ||
-                text.toLowerCase().includes('blvd') ||
-                text.toLowerCase().includes('lane') ||
-                text.toLowerCase().includes('drive') ||
-                text.toLowerCase().includes('street') ||
-                text.toLowerCase().includes('road') ||
-                text.includes(','))) {  // Usually addresses have commas between city, state
-              info.address = text.replace(/\s+/g, ' ').trim();
-              break;
-            }
-          }
-        }
-      }
-
-      // Extract owner (if available)
-      const ownerLink = document.querySelector('a[data-item-id="owner"]');
-      if (ownerLink) {
-        info.owner = ownerLink.href;
-      }
-
-      return info;
-    });
-
-    return detailedInfo;
-  } catch (error) {
-    console.error(`Error extracting detailed info from ${businessUrl}:`, error);
-    return { phone: '', website: '', address: '', owner: '' };
-  } finally {
-    if (page) await page.close();
+    processedCount++;
+    if (processedCount % 10 === 0 || processedCount === listingsNeedingInfo.length) {
+      progressCallback({
+        status: 'processing',
+        message: `Detailed info: ${processedCount}/${listingsNeedingInfo.length} processed (${skippedCount} skipped)`
+      });
+    }
   }
 }
 

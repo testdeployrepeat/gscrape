@@ -152,6 +152,9 @@ function setupHistoryEventDelegation() {
   function handleCheckboxChange(e) {
     if (!e.target.classList.contains('history-checkbox')) return;
 
+    // Stop event propagation to prevent any parent handlers from interfering
+    e.stopPropagation();
+
     const cb = e.target;
     const timestamp = cb.dataset.timestamp;
     const record = history.searches.find(s => s.timestamp === timestamp);
@@ -163,6 +166,7 @@ function setupHistoryEventDelegation() {
       selectedHistoryItems.delete(timestamp);
     }
 
+    // Update UI immediately (synchronously)
     updateSelectionUI();
     updateLiveResultsFromSelection();
     updateStatsFromSelection();
@@ -1133,64 +1137,8 @@ function renderHistory() {
     bulkSelectAllLink.textContent = 'Select All'; // Default to 'Select All'
   }
 
-  // Helper function to uncheck opposite section (History vs Bulk Sessions)
-  function uncheckOppositeSection(selectedRecord) {
-    const isBulk = selectedRecord && selectedRecord.isBulk;
-    const allCheckboxes = document.querySelectorAll('.history-checkbox');
-
-    allCheckboxes.forEach(cb => {
-      const timestamp = cb.dataset.timestamp;
-      const record = history.searches.find(s => s.timestamp === timestamp);
-
-      // If clicking bulk, uncheck regular (and vice versa)
-      if (record && record.isBulk !== isBulk) {
-        cb.checked = false;
-        selectedHistoryItems.delete(timestamp);
-      }
-    });
-  }
-
-  // Helper function to update live results from selected records
-  function updateLiveResultsFromSelection() {
-    if (selectedHistoryItems.size === 0) {
-      renderResults([]);
-      return;
-    }
-
-    const selectedRecords = history.searches.filter(s =>
-      selectedHistoryItems.has(s.timestamp)
-    );
-
-    const combinedData = [];
-    selectedRecords.forEach(record => {
-      if (record.data && Array.isArray(record.data)) {
-        combinedData.push(...record.data);
-      }
-    });
-
-    renderResults(combinedData);
-  }
-
-  // Helper function to update stats from selected records
-  function updateStatsFromSelection() {
-    if (selectedHistoryItems.size === 0) {
-      updateStats();
-      return;
-    }
-
-    const selectedRecords = history.searches.filter(s =>
-      selectedHistoryItems.has(s.timestamp)
-    );
-
-    const combinedData = [];
-    selectedRecords.forEach(record => {
-      if (record.data && Array.isArray(record.data)) {
-        combinedData.push(...record.data);
-      }
-    });
-
-    updateStats(combinedData);
-  }
+  // NOTE: Helper functions (uncheckOppositeSection, updateLiveResultsFromSelection, updateStatsFromSelection)
+  // are now defined at global scope to be accessible from setupHistoryEventDelegation()
 
   // NOTE: Checkbox, export, and delete handlers are now handled by event delegation
   // in setupHistoryEventDelegation() to prevent duplicate listeners
@@ -1849,17 +1797,20 @@ async function startBulkScraping(resumedTimestamp = null) {
   // (before creating any records or changing button state)
   // =====================================================
 
-  // Check for previously scraped locations in history (only for new operations, not resumed)
+  // Check for previously scraped niche+location combinations in history (only for new operations, not resumed)
   if (!resumedTimestamp) {
-    const previouslyScrapedLocations = new Set();
+    const previouslyScrapedCombinations = new Set();
     history.searches.forEach(record => {
-      if (record.isBulk && record.bulkData && record.bulkData.queries) {
-        record.bulkData.queries.forEach(loc => previouslyScrapedLocations.add(loc.toLowerCase()));
+      if (record.isBulk && record.bulkData && record.bulkData.queries && record.bulkData.niche) {
+        // Store niche + location combination to properly detect duplicates
+        const recordNiche = record.bulkData.niche.toLowerCase();
+        record.bulkData.queries.forEach(loc => previouslyScrapedCombinations.add(`${recordNiche}||${loc.toLowerCase()}`));
       }
     });
 
-    // Find duplicates in current bulk queries
-    const duplicates = bulkQueries.filter(loc => previouslyScrapedLocations.has(loc.toLowerCase()));
+    // Find duplicates by checking current niche + location combination
+    const currentNiche = niche.toLowerCase();
+    const duplicates = bulkQueries.filter(loc => previouslyScrapedCombinations.has(`${currentNiche}||${loc.toLowerCase()}`));
 
     if (duplicates.length > 0) {
       const userChoice = await showDuplicateModal(duplicates);
@@ -1870,8 +1821,8 @@ async function startBulkScraping(resumedTimestamp = null) {
       }
 
       if (userChoice === 'skip') {
-        // Filter out duplicates from bulkQueries
-        bulkQueries = bulkQueries.filter(loc => !previouslyScrapedLocations.has(loc.toLowerCase()));
+        // Filter out duplicates from bulkQueries (based on niche+location combination)
+        bulkQueries = bulkQueries.filter(loc => !previouslyScrapedCombinations.has(`${currentNiche}||${loc.toLowerCase()}`));
         if (bulkQueries.length === 0) {
           showCustomAlert('No New Locations', 'All locations have already been scraped. Nothing to do.');
           return;
@@ -3564,6 +3515,18 @@ function toggleSelectAll() {
     });
     selectAllLink.textContent = 'Select All';
   } else {
+    // First, uncheck all bulk session checkboxes (mutual exclusivity)
+    const bulkCheckboxes = Array.from(allCheckboxes).filter(cb => {
+      const timestamp = cb.dataset.timestamp;
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      return record && record.isBulk;
+    });
+    bulkCheckboxes.forEach(cb => {
+      cb.checked = false;
+      selectedHistoryItems.delete(cb.dataset.timestamp);
+    });
+    bulkSelectAllLink.textContent = 'Select All';
+
     // Select all regular items
     regularCheckboxes.forEach(cb => {
       cb.checked = true;
@@ -3596,6 +3559,18 @@ function toggleSelectAllBulk() {
     });
     bulkSelectAllLink.textContent = 'Select All';
   } else {
+    // First, uncheck all regular history checkboxes (mutual exclusivity)
+    const regularCheckboxes = Array.from(allCheckboxes).filter(cb => {
+      const timestamp = cb.dataset.timestamp;
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      return record && !record.isBulk;
+    });
+    regularCheckboxes.forEach(cb => {
+      cb.checked = false;
+      selectedHistoryItems.delete(cb.dataset.timestamp);
+    });
+    selectAllLink.textContent = 'Select All';
+
     // Select all bulk items
     bulkCheckboxes.forEach(cb => {
       cb.checked = true;
@@ -3632,6 +3607,68 @@ function updateSelectionUI() {
     bulkDeleteSelectedBtn.style.display = 'none';
 
   }
+}
+
+// Helper function to uncheck opposite section (History vs Bulk Sessions)
+// Moved to global scope to be accessible from setupHistoryEventDelegation
+function uncheckOppositeSection(selectedRecord) {
+  const isBulk = selectedRecord && selectedRecord.isBulk;
+  const allCheckboxes = document.querySelectorAll('.history-checkbox');
+
+  allCheckboxes.forEach(cb => {
+    const timestamp = cb.dataset.timestamp;
+    const record = history.searches.find(s => s.timestamp === timestamp);
+
+    // If clicking bulk, uncheck regular (and vice versa)
+    if (record && record.isBulk !== isBulk) {
+      cb.checked = false;
+      selectedHistoryItems.delete(timestamp);
+    }
+  });
+}
+
+// Helper function to update live results from selected records
+// Moved to global scope to be accessible from setupHistoryEventDelegation
+function updateLiveResultsFromSelection() {
+  if (selectedHistoryItems.size === 0) {
+    renderResults([]);
+    return;
+  }
+
+  const selectedRecords = history.searches.filter(s =>
+    selectedHistoryItems.has(s.timestamp)
+  );
+
+  const combinedData = [];
+  selectedRecords.forEach(record => {
+    if (record.data && Array.isArray(record.data)) {
+      combinedData.push(...record.data);
+    }
+  });
+
+  renderResults(combinedData);
+}
+
+// Helper function to update stats from selected records
+// Moved to global scope to be accessible from setupHistoryEventDelegation
+function updateStatsFromSelection() {
+  if (selectedHistoryItems.size === 0) {
+    updateStats();
+    return;
+  }
+
+  const selectedRecords = history.searches.filter(s =>
+    selectedHistoryItems.has(s.timestamp)
+  );
+
+  const combinedData = [];
+  selectedRecords.forEach(record => {
+    if (record.data && Array.isArray(record.data)) {
+      combinedData.push(...record.data);
+    }
+  });
+
+  updateStats(combinedData);
 }
 
 // Export function for a single bulk record

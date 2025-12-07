@@ -383,17 +383,7 @@
               <small>Enable F12 key to open developer tools (off by default)</small>
             </div>
 
-            <div class="form-group">
-              <label class="switch-label">
-                <span>Detailed Info Extraction</span>
-                <label class="switch">
-                  <input type="checkbox" id="detailedInfoExtraction">
-                  <span class="slider"></span>
-                </label>
-              </label>
-              <small>Only enable this if you're not getting phone numbers or website links in your results as Google
-                hides them in certain regions.</small>
-            </div>
+
             <div class="form-group">
               <label class="switch-label">
                 <span>Deep Email Extraction</span>
@@ -439,7 +429,7 @@
           </div>
 
 
-          <div class="settings-group" style="margin-top: 24px; border-top: 2px solid var(--error); padding-top: 24px;">
+          <div class="settings-group" style="margin-top: 24px; padding-top: 24px;">
             <div class="form-group">
               <button type="button" id="deleteAllDataBtn" class="btn-danger" style="width: 100%; padding: 12px;">
                 Delete All Data
@@ -591,6 +581,7 @@
               </div>
 
 
+
             </div>
 
             <!-- Bulk Mode -->
@@ -688,6 +679,21 @@
                   <option value="json">JSON</option>
                 </select>
               </div>
+            </div>
+
+            <!-- Detailed Info Extraction - Shows in both modes -->
+            <div class="form-group">
+              <label class="switch-label">
+                <span>Detailed Info Extraction</span>
+                <label class="switch">
+                  <input type="checkbox" id="detailedInfoExtraction">
+                  <span class="slider"></span>
+                </label>
+              </label>
+              <small
+                style="color: rgba(255, 255, 255, 0.4); display: block; margin-top: 4px; font-size: 12px; font-style: italic;">Only
+                enable this if you're not getting phone numbers or website links in your results (Google hides them in
+                certain regions)</small>
             </div>
 
             <!-- Fast Mode Email Scraping - Shows in both modes when Fast is selected -->
