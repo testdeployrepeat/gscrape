@@ -587,61 +587,112 @@ async function extractEmailFromWebsite(browser, websiteUrl, timeout, deepExtract
       }
     });
 
-    // Try homepage first
-    await page.goto(websiteUrl, { waitUntil: 'domcontentloaded', timeout });
+    // Helper to extract emails from current page content
+    const extractEmailsFromPage = async () => {
+      return await page.evaluate(() => {
+        // 1. Check mailto: links first (most reliable)
+        const mailtoLinks = Array.from(document.querySelectorAll('a[href^="mailto:"]'));
+        if (mailtoLinks.length > 0) {
+          return mailtoLinks[0].href.replace('mailto:', '').split('?')[0].trim();
+        }
 
-    let email = await page.evaluate(() => {
-      // 1. Check mailto: links first (most reliable)
-      const mailtoLinks = Array.from(document.querySelectorAll('a[href^="mailto:"]'));
-      if (mailtoLinks.length > 0) {
-        const emailFromLink = mailtoLinks[0].href.replace('mailto:', '').split('?')[0].trim();
-        return emailFromLink;
-      }
+        // Helper to de-obfuscate text
+        const deobfuscate = (text) => {
+          return text
+            .replace(/\s*\[at\]\s*/gi, '@')
+            .replace(/\s*\(at\)\s*/gi, '@')
+            .replace(/\s*\[dot\]\s*/gi, '.')
+            .replace(/\s*\(dot\)\s*/gi, '.');
+        };
 
-      // 2. Enhanced regex pattern for better matching
-      const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-      const html = document.body.innerHTML;
-      const matches = html.match(emailRegex) || [];
+        const bodyText = document.body.innerText;
+        const cleanText = deobfuscate(bodyText);
 
-      // 3. Filter out false positives
-      const filtered = matches.filter(e => {
-        const lower = e.toLowerCase();
-        return !lower.includes('.png') &&
-          !lower.includes('.jpg') &&
-          !lower.includes('.gif') &&
-          !lower.includes('example.com') &&
-          !lower.includes('sentry.io');
+        // 2. Enhanced regex: strict domain matching, excludes common file extensions
+        // Matches: something@domain.tld (2+ chars for TLD)
+        const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi;
+        const matches = cleanText.match(emailRegex) || [];
+
+        // 3. Filter out false positives
+        const filtered = matches.filter(e => {
+          const lower = e.toLowerCase();
+          // Exclude image/file extensions that regex might mistakenly catch
+          const invalidExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.js', '.css', '.woff', '.ttf'];
+          if (invalidExtensions.some(ext => lower.endsWith(ext))) return false;
+
+          // Exclude placeholder/system domains
+          if (lower.includes('example.com')) return false;
+          if (lower.includes('sentry.io')) return false;
+          if (lower.includes('domain.com')) return false; // Common placeholder
+
+          return true;
+        });
+
+        // 4. Prioritize common business email prefixes
+        const priority = filtered.find(e => /^(info|contact|support|hello|admin|sales|team|office|enquiries)@/i.test(e));
+        return priority || filtered[0] || '';
       });
+    };
 
-      // 4. Prioritize common business email prefixes
-      const priority = filtered.find(e => /^(info|contact|support|hello|admin|sales|team)@/i.test(e));
-      return priority || filtered[0] || '';
-    });
+    // Try homepage first
+    try {
+      await page.goto(websiteUrl, { waitUntil: 'domcontentloaded', timeout });
+    } catch (e) {
+      // If homepage fails, we can't do much
+      return '';
+    }
 
-    // Deep extraction: check contact page if enabled and no email found
+    let email = await extractEmailsFromPage();
+
+    // Deep extraction: Smart Contact Discovery
     if (deepExtraction && !email) {
       try {
-        const contactUrl = new URL('/contact', websiteUrl).href;
-        await page.goto(contactUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 10000
+        // Find the best candidate link for a contact page
+        const contactLink = await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a'));
+          // Look for links with specific keywords
+          const keywords = ['contact', 'get in touch', 'reach us', 'support', 'about'];
+
+          // Score links based on their text and href
+          const bestLink = links.reduce((best, link) => {
+            const text = (link.innerText || '').toLowerCase();
+            const href = (link.href || '').toLowerCase();
+
+            // Skip invalid links
+            if (!href || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:') || href === window.location.href) {
+              return best;
+            }
+
+            let score = 0;
+            if (text.includes('contact')) score += 10;
+            else if (text.includes('get in touch')) score += 8;
+            else if (text.includes('support')) score += 5;
+            else if (text.includes('about')) score += 2; // Lower priority for 'about' pages
+
+            if (href.includes('contact')) score += 5;
+            if (href.includes('about')) score += 1;
+
+            if (score > (best.score || 0)) {
+              return { element: link, score };
+            }
+            return best;
+          }, { score: 0 });
+
+          return bestLink.element ? bestLink.element.href : null;
         });
 
-        email = await page.evaluate(() => {
-          // Check mailto: links on contact page
-          const mailtoLinks = Array.from(document.querySelectorAll('a[href^="mailto:"]'));
-          if (mailtoLinks.length > 0) {
-            return mailtoLinks[0].href.replace('mailto:', '').split('?')[0].trim();
-          }
+        if (contactLink) {
+          // Navigate to the discovered contact page
+          await page.goto(contactLink, {
+            waitUntil: 'domcontentloaded',
+            timeout: 10000 // Shorter timeout for contact page
+          });
 
-          // Fallback to regex
-          const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-          const matches = document.body.textContent.match(emailRegex) || [];
-          const filtered = matches.filter(e => !e.toLowerCase().includes('.png'));
-          return filtered[0] || '';
-        });
+          // Try to extract email again from the new page
+          email = await extractEmailsFromPage();
+        }
       } catch (e) {
-        // Contact page doesn't exist or failed to load - that's okay
+        // Navigation failed or page didn't load, ignore
       }
     }
 
