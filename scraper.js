@@ -81,8 +81,8 @@ async function scrollResultsFeed(page, speed) {
     throw new Error("Could not find the results list to scroll. The page layout may have changed or the page is blocked.");
   }
 
-  // Wait a moment for initial content to load before scrolling
-  await wait(500);
+  // Wait a moment for initial content to load before scrolling (increased for cold starts)
+  await wait(2000);
 
   // Event-driven scrolling with exponential backoff
   let lastItemsCount = 0;
@@ -333,11 +333,13 @@ async function scrapeGoogleMaps(options, progressCallback) {
       }
     }
 
-    // Wait a bit more for results to populate
-    await wait(2000);
-
-    // Additional wait after consent for results to fully load
-    await wait(1500);
+    // SMART WAIT: Wait for actual business listings to appear instead of hard sleep
+    try {
+      await page.waitForSelector('div[role="feed"] > div > div[jsaction]', { timeout: 7000 });
+    } catch (e) {
+      // If items don't appear quickly, we continue to scrolling which has its own checks
+      console.log('Timeout waiting for initial listings, proceeding to scroll...');
+    }
 
     if (shouldStop) throw new Error('Scraping cancelled by user');
 

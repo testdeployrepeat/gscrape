@@ -7,6 +7,7 @@ let isScrapingActive = false;
 let currentBulkOperation = null; // Track current bulk operation
 let startTime = null;
 let timerInterval = null;
+let rateLimitAlertShown = false; // Flag to track if rate limit alert has been shown in current session
 
 // Pagination for live results (performance optimization)
 const RESULTS_PAGE_SIZE = 20;
@@ -133,14 +134,39 @@ function setupHistoryEventDelegation() {
     // Update stats to show data from the selected record
     updateStats(record.data);
 
-    // Reset progress bar to default state when viewing history items
-    // (The percentage is now shown in the status badge for paused/completed sessions)
-    progressFill.style.width = '0%';
-    if (progressPercent) progressPercent.textContent = '0%';
-    progressText.textContent = 'Ready to scrape';
-    progressText.style.color = 'var(--text-primary)';
-    document.getElementById('bulkProgress').style.display = 'none';
-    document.getElementById('fastBulkProgress').style.display = 'none';
+    // Update progress display based on record type
+    if (record.isBulk && record.bulkData) {
+      const completed = record.bulkData.completedQueries || 0;
+      const total = record.bulkData.totalQueries || 0;
+      const pct = record.bulkData.progressPercent !== undefined
+        ? record.bulkData.progressPercent
+        : (total > 0 ? Math.round((completed / total) * 100) : 0);
+
+      document.getElementById('bulkProgress').style.display = 'block';
+      document.getElementById('fastBulkProgress').style.display = 'none';
+
+      progressFill.style.width = `${pct}%`;
+      if (progressPercent) progressPercent.textContent = `${pct}%`;
+
+      if (record.status === 'paused') {
+        progressText.textContent = `Paused: ${completed}/${total} queries completed`;
+        progressText.style.color = 'var(--warning)';
+      } else if (record.status === 'completed') {
+        progressText.textContent = `Completed: ${completed}/${total} queries`;
+        progressText.style.color = 'var(--success)';
+      } else {
+        progressText.textContent = `Bulk session: ${completed}/${total} queries`;
+        progressText.style.color = 'var(--text-primary)';
+      }
+    } else {
+      // Reset progress bar for regular single items
+      progressFill.style.width = '0%';
+      if (progressPercent) progressPercent.textContent = '0%';
+      progressText.textContent = 'Ready to scrape';
+      progressText.style.color = 'var(--text-primary)';
+      document.getElementById('bulkProgress').style.display = 'none';
+      document.getElementById('fastBulkProgress').style.display = 'none';
+    }
 
     // Scroll to results section after a small delay to ensure DOM updates are complete
     setTimeout(() => {
@@ -865,12 +891,14 @@ document.getElementById('checkForUpdates')?.addEventListener('click', async () =
 function toggleBulkMode() {
   isBulkMode = bulkModeToggle.checked;
 
+  // Declare speedSelect in function scope
+  const speedSelect = document.getElementById('speed');
+
   if (isBulkMode) {
     singleMode.style.display = 'none';
     bulkMode.style.display = 'block';
 
     // In bulk mode, show all speed options normally
-    const speedSelect = document.getElementById('speed');
     const fastOption = speedSelect.querySelector('option[value="fast"]');
     if (fastOption) {
       fastOption.disabled = false;
@@ -881,7 +909,6 @@ function toggleBulkMode() {
     bulkMode.style.display = 'none';
 
     // In single mode, grey out fast mode option
-    const speedSelect = document.getElementById('speed');
     const fastOption = speedSelect.querySelector('option[value="fast"]');
     if (fastOption) {
       fastOption.disabled = false; // Keep enabled but show it's for emails
@@ -1068,7 +1095,7 @@ function renderHistory() {
           item.status === 'paused' ? `<span class="status-badge paused">Paused ${progressPct}%</span>` :
             item.status === 'processing' ? `<span class="status-badge processing">Processing ${progressPct}%</span>` :
               item.status === 'completed' ? `<span class="status-badge completed">Completed</span>` : '';
-        const resumeBtn = (item.status === 'cancelled' || item.status === 'paused') && item.isBulk ?
+        const resumeBtn = (item.status === 'cancelled' || item.status === 'paused' || item.status === 'stopped') && item.isBulk ?
           `<button class="btn-icon resume-bulk" title="Resume bulk scraping" data-query="${escapeHtml(item.query)}" data-timestamp="${item.timestamp}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <path d="M8 5v14l11-7z"/>
@@ -1858,6 +1885,26 @@ async function startBulkScraping(resumedTimestamp = null) {
 
   // Create bulk history record
   const bulkHistoryTimestamp = new Date().toISOString(); // Use a different variable name to avoid conflict
+
+  // GLOBAL OFFSET logic for resumed sessions
+  // Initial values for new sessions
+  let globalCompletedOffset = 0;
+  let globalTotalQueries = bulkQueries.length;
+
+  if (resumedTimestamp) {
+    const historyItem = history.searches.find(s => s.timestamp === resumedTimestamp);
+    if (historyItem && historyItem.bulkData) {
+      globalTotalQueries = historyItem.bulkData.totalQueries || bulkQueries.length;
+      // If resuming, 'bulkQueries' passed to this function is likely the subset of remaining queries.
+      // We calculate offset based on the difference or explicit data.
+      // If 'bulkQueries' is remaining items (length 304), and total was 466:
+      // Offset = 466 - 304 = 162.
+      // Or trust the record's completed count? 
+      // Let's trust total - current length, as that's safer if bulkData.completedQueries is out of sync.
+      globalCompletedOffset = globalTotalQueries - bulkQueries.length;
+    }
+  }
+
   const queryStatus = {};
   bulkQueries.forEach((location, index) => {
     queryStatus[index] = {
@@ -1882,7 +1929,10 @@ async function startBulkScraping(resumedTimestamp = null) {
         completedQueries: startIndex,
         queryStatus,
         resumeKey,  // Store the resume key for easy cleanup
-        speed: selectedSpeed
+        speed: selectedSpeed,
+        extractEmails: extractEmailsBulkCheckbox.checked,
+        extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
+        deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
       }
     });
   } else {
@@ -1916,6 +1966,9 @@ async function startBulkScraping(resumedTimestamp = null) {
     };
   }
 
+  // Reset Rate Limit Alert Flag for new session
+  rateLimitAlertShown = false;
+
   // =====================================================
   // STEP 3: Now update the UI to show scraping state
   // =====================================================
@@ -1934,7 +1987,8 @@ async function startBulkScraping(resumedTimestamp = null) {
   progressSection.style.display = 'block';
   progressSection.classList.add('visible');
   bulkProgress.style.display = 'block';
-  totalQueries.textContent = bulkQueries.length;
+  // Update total count to show GLOBAL total (not just the remaining subset)
+  totalQueries.textContent = globalTotalQueries;
 
   // Initialize or keep existing scraped data
   if (!scrapedData) scrapedData = [];
@@ -1963,17 +2017,27 @@ async function startBulkScraping(resumedTimestamp = null) {
 
     // Set flag to prevent per-query progress updates
     isBulkFastMode = true;
-    document.getElementById('fastTotalQueries').textContent = bulkQueries.length;
-    document.getElementById('fastCompletedQueries').textContent = startIndex;
+    document.getElementById('fastTotalQueries').textContent = globalTotalQueries;
+    document.getElementById('fastCompletedQueries').textContent = globalCompletedOffset; // Start at global offset
     document.getElementById('progressText').textContent = 'Starting fast bulk scraping...';
-    document.getElementById('progressPercent').textContent = '0%';
-    document.getElementById('progressFill').style.width = '0%';
+    // Calculate initial percent based on offset
+    const initialPercent = Math.round((globalCompletedOffset / globalTotalQueries) * 100);
+    document.getElementById('progressPercent').textContent = `${initialPercent}%`;
+    document.getElementById('progressFill').style.width = `${initialPercent}%`;
 
     // Parallel processing for fast mode: use user-defined number of queries at a time
     const defaultParallelLimit = 2;
     const maxSafeParallelLimit = 10; // Match max setting in UI (1-10)
-    const savedParallelLimit = parseInt(localStorage.getItem('fastModeParallelScraping')) || defaultParallelLimit;
-    const parallelLimit = Math.min(savedParallelLimit > 0 ? savedParallelLimit : defaultParallelLimit, maxSafeParallelLimit);
+    // FORCE read from Input first -> then Storage -> then Default
+    const inputLimit = parseInt(fastModeParallelScrapingInput.value);
+    const savedParallelLimit = parseInt(localStorage.getItem('fastModeParallelScraping'));
+
+    // Priority: Input Value > Saved Config > Default
+    const effectiveLimit = (!isNaN(inputLimit) && inputLimit > 0) ? inputLimit :
+      (!isNaN(savedParallelLimit) && savedParallelLimit > 0) ? savedParallelLimit :
+        defaultParallelLimit;
+
+    const parallelLimit = Math.min(effectiveLimit, maxSafeParallelLimit);
 
     // Queue-based parallel processing: maintain constant concurrency
     // Note: currentQueryIndex is defined in outer scope
@@ -1993,22 +2057,37 @@ async function startBulkScraping(resumedTimestamp = null) {
         const query = `${niche} ${preposition} ${location}`;
 
         // Update progress
-        progressText.textContent = `Processing query ${completedQueries + 1}/${bulkQueries.length} (${parallelLimit} parallel)`;
+        const globalCurrentIndex = globalCompletedOffset + completedQueries + 1;
+        progressText.textContent = `${niche} in ${location}: Scraping... (${globalCurrentIndex}/${globalTotalQueries})`;
         progressText.style.color = 'var(--text-primary)';
         currentQuery.textContent = queryIndex + 1;
         currentSearchQuery.textContent = query;
+
+        // For resumed sessions, use the original extraction usage settings
+        let useExtractEmails = extractEmailsBulkCheckbox.checked;
+        let useDetailedInfo = localStorage.getItem('detailedInfoMode') === 'true';
+        let useDeepExtraction = localStorage.getItem('deepEmailExtraction') === 'true';
+
+        if (resumedTimestamp) {
+          const originalRecord = history.searches.find(s => s.timestamp === resumedTimestamp);
+          if (originalRecord && originalRecord.bulkData) {
+            if (originalRecord.bulkData.extractEmails !== undefined) useExtractEmails = originalRecord.bulkData.extractEmails;
+            if (originalRecord.bulkData.extractDetailedInfo !== undefined) useDetailedInfo = originalRecord.bulkData.extractDetailedInfo;
+            if (originalRecord.bulkData.deepEmailExtraction !== undefined) useDeepExtraction = originalRecord.bulkData.deepEmailExtraction;
+          }
+        }
 
         try {
           const result = await window.electronAPI.startScraping({
             niche,
             location,
             speed: selectedSpeed,
-            extractEmails: extractEmailsBulkCheckbox.checked,
-            extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
+            extractEmails: useExtractEmails,
+            extractDetailedInfo: useDetailedInfo,
             headless: headlessModeCheckbox.checked,
             parallelLimit: parseInt(fastModeParallelScrapingInput.value),
             emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
-            deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
+            deepEmailExtraction: useDeepExtraction
           });
 
           if (!isScrapingActive) {
@@ -2016,12 +2095,25 @@ async function startBulkScraping(resumedTimestamp = null) {
             break;
           }
 
+          // Remove any data that was scraped for the current query since it was interrupted
           if (result.stopped) {
-            // Remove any data that was scraped for the current query since it was interrupted
             if (result.data && result.data.length > 0) {
               scrapedData = scrapedData.filter(item => item.search_location !== location);
             }
             localStorage.setItem(resumeKey, queryIndex.toString());
+
+            // NEW: Ensure we save the PAUSED state immediately
+            const processingRecordIndex = history.searches.findIndex(item =>
+              item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+            );
+
+            if (processingRecordIndex !== -1) {
+              history.searches[processingRecordIndex].status = 'paused';
+              // Recalculate progress for the record
+              // ... logic handled in final cleanup but good to set status here
+            }
+            // Don't break immediately - allow other workers to finish cleanly? 
+            // Actually, if stopped, we should break.
             break;
           }
 
@@ -2059,6 +2151,39 @@ async function startBulkScraping(resumedTimestamp = null) {
                 if (originalIndex !== -1 && queryStatus[originalIndex]) {
                   queryStatus[originalIndex].status = 'completed';
                   processingRecord.bulkData.completedQueries += 1;
+
+                  // Update progress percent
+                  const total = processingRecord.bulkData.totalQueries;
+                  const currentComp = processingRecord.bulkData.completedQueries;
+                  const pct = Math.round((currentComp / total) * 100);
+                  processingRecord.bulkData.progressPercent = pct;
+
+                  // SYNC LIVE PROGRESS TO SIDEBAR
+                  // Find the history item in the DOM and update it directly
+                  const historyItem = document.querySelector(`.history-item[data-timestamp="${timestamp}"]`);
+                  if (historyItem) {
+                    const statusBadge = historyItem.querySelector('.status-badge.processing');
+                    if (statusBadge) {
+                      statusBadge.textContent = `Processing ${pct}%`;
+                    }
+                    // Also update the subtext if it exists (for detailed query counts)
+                    // The HTML structure has the progress/query count in a div after the .history-query
+                    // We can try to find the text node or element containing the count
+
+                    // The specific structure created in renderHistory is:
+                    // <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 2px;">${completed}/${total} queries completed (${progressPct}%)</div>
+                    // Let's rely on the class or structure. It's the sibling of history-query or inside history-content.
+                    // Since it has inline styles and no class, we can target it by position or content logic?
+                    // Actually, let's just update the status badge which is the most critical user request.
+                    // If we want to be fancy we can try to find that specific div.
+                    const contentDiv = historyItem.querySelector('.history-content');
+                    if (contentDiv) {
+                      const progressDiv = Array.from(contentDiv.children).find(el => el.textContent.includes('queries completed'));
+                      if (progressDiv) {
+                        progressDiv.textContent = `${currentComp}/${total} queries completed (${pct}%)`;
+                      }
+                    }
+                  }
                 }
               }
 
@@ -2077,7 +2202,7 @@ async function startBulkScraping(resumedTimestamp = null) {
               updateStats();
             }
 
-            progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
+            progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses`;
             progressText.style.color = 'var(--success)';
           } else {
             // Mark as completed even if no results
@@ -2088,9 +2213,7 @@ async function startBulkScraping(resumedTimestamp = null) {
             if (processingRecordIndex !== -1) {
               // Update the specific query status - need to find original index for resumed operations
               const processingRecord = history.searches[processingRecordIndex];
-
               if (processingRecord.bulkData && processingRecord.bulkData.queryStatus) {
-                // Find the correct index by matching the location
                 let originalIndex = -1;
                 const queryStatus = processingRecord.bulkData.queryStatus;
 
@@ -2100,17 +2223,31 @@ async function startBulkScraping(resumedTimestamp = null) {
                     break;
                   }
                 }
-
                 if (originalIndex !== -1 && queryStatus[originalIndex]) {
-                  // Update the status for the specific location
                   queryStatus[originalIndex].status = 'completed';
                   processingRecord.bulkData.completedQueries += 1;
                 }
               }
             }
-
             progressText.textContent = `⚠ ${query}: No results found`;
             progressText.style.color = 'var(--warning)';
+          }
+
+          // Check for Rate Limiting / Blocking Errors
+          if (!result.success || (result.data && result.data.length === 0)) {
+            // Keywords that suggest blocking/rate limiting
+            const errorMsg = result.error || '';
+            const isBlockingError =
+              errorMsg.includes('ERR_CONNECTION_RESET') ||
+              errorMsg.includes('Unable to find search results') ||
+              errorMsg.includes('Browser close timeout') ||
+              errorMsg.includes('Timeout') ||
+              (result.success && result.data.length === 0); // Empty results can also be a soft block
+
+            if (isBlockingError && !rateLimitAlertShown) {
+              showRateLimitAlert();
+              rateLimitAlertShown = true;
+            }
           }
 
           // Update fast mode progress counter and bar - calculate based on actual completed queries
@@ -2123,8 +2260,10 @@ async function startBulkScraping(resumedTimestamp = null) {
             actualCompletedCount = history.searches[processingRecordIndex].bulkData.completedQueries;
           }
 
-          // Calculate progress percentage using the new logic: floor((completed/total) * 100)
-          const progressPercent = Math.floor((actualCompletedCount / bulkQueries.length) * 100);
+          // UPDATED: Calculate progress percentage using GLOBAL totals
+          // actualCompletedCount comes from history which is already global/accumulated
+          // But we need to make sure we divide by the GLOBAL total, not the local batch length
+          const progressPercent = Math.floor((actualCompletedCount / globalTotalQueries) * 100);
 
           // Update fast mode progress elements using the shared progress section
           document.getElementById('fastCompletedQueries').textContent = actualCompletedCount;
@@ -2132,11 +2271,11 @@ async function startBulkScraping(resumedTimestamp = null) {
           document.getElementById('progressPercent').textContent = `${progressPercent}%`;
 
           // Update the text to show current status
-          document.getElementById('progressText').textContent = `Query completed - ${actualCompletedCount}/${bulkQueries.length} done (${progressPercent}%)`;
+          document.getElementById('progressText').textContent = `Query completed - ${actualCompletedCount}/${globalTotalQueries} done (${progressPercent}%)`;
           document.getElementById('progressText').style.color = 'var(--success)';
 
           if (progressPercent === 100 && progressPercent !== 0) {
-            document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses in total`;
+            document.getElementById('progressText').textContent = `✓ Completed! Scraped ${scrapedData.length} businesses`;
             document.getElementById('progressText').style.color = 'var(--success)';
           }
 
