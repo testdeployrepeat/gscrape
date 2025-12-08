@@ -172,7 +172,7 @@ ipcMain.handle('save-history', async (event, historyData) => {
     }
 });
 
-const { scrapeGoogleMaps, stopScraping } = require('./scraper');
+const { scrapeGoogleMaps, stopScraping, resetStopper } = require('./scraper');
 
 ipcMain.handle('start-scraping', async (event, options) => {
     try {
@@ -191,6 +191,15 @@ ipcMain.handle('start-scraping', async (event, options) => {
 ipcMain.handle('stop-scraping', async () => {
     try {
         stopScraping();
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('reset-scraping-state', async () => {
+    try {
+        resetStopper();
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };

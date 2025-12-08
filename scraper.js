@@ -18,6 +18,14 @@ function stopScraping() {
   shouldStop = true;
 }
 
+function resetStopper() {
+  shouldStop = false;
+}
+
+function resetStopper() {
+  shouldStop = false;
+}
+
 /**
  * NEW: Clicks the consent button that can appear on first load.
  */
@@ -200,7 +208,7 @@ async function scrapeGoogleMaps(options, progressCallback) {
   const searchQuery = `${niche} in ${location}`;
   const scrapedLinks = new Set();
 
-  shouldStop = false;
+  // shouldStop = false; // MOVED: Handled via resetStopper() to support parallel scraping
 
   progressCallback({ status: 'starting', message: 'Launching browser...' });
 
@@ -836,4 +844,4 @@ async function extractDetailedInfo(page, results, speed, progressCallback) {
   }
 }
 
-module.exports = { scrapeGoogleMaps, stopScraping };
+module.exports = { scrapeGoogleMaps, stopScraping, resetStopper };

@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveHistory: (data) => ipcRenderer.invoke('save-history', data),
     startScraping: (options) => ipcRenderer.invoke('start-scraping', options),
     stopScraping: () => ipcRenderer.invoke('stop-scraping'),
+    resetScrapingState: () => ipcRenderer.invoke('reset-scraping-state'),
     exportData: (data) => ipcRenderer.invoke('export-data', data),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     exportDataToFolder: (data) => ipcRenderer.invoke('export-data-to-folder', data),

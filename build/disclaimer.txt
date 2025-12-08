@@ -1,0 +1,47 @@
+GScrape - Google Maps Business Scraper
+Created by Rob De Guia
+GitHub: @testdeployrepeat
+Email: joserobertodeguia@gmail.com
+
+================================================================================
+DISCLAIMER AND TERMS OF USE
+================================================================================
+
+IMPORTANT - READ CAREFULLY BEFORE INSTALLING
+
+By installing and using GScrape, you acknowledge and agree to the following:
+
+1. EDUCATIONAL PURPOSE
+   This software is provided for educational and personal use only.
+
+2. COMPLIANCE WITH TERMS OF SERVICE
+   You must comply with Google Maps' Terms of Service and all applicable laws
+   when using this software.
+
+3. RESPONSIBLE USE
+   You agree to use this tool responsibly and ethically. Web scraping should
+   be done with respect for the target website's resources and policies.
+
+4. NO WARRANTY
+   This software is provided "AS IS" without warranty of any kind, either
+   expressed or implied.
+
+5. LIMITATION OF LIABILITY
+   The author (Rob De Guia) is NOT responsible for any misuse of this software
+   or any consequences arising from its use.
+
+6. USER RESPONSIBILITY
+   You are solely responsible for how you use this software and any data you
+   collect with it.
+
+7. ACCEPTANCE
+   By clicking "I Agree" and proceeding with the installation, you acknowledge
+   that you have read, understood, and agree to be bound by these terms.
+
+================================================================================
+
+If you do not agree to these terms, click "Cancel" to exit the installer.
+
+For questions or support:
+- GitHub: https://github.com/testdeployrepeat
+- Email: joserobertodeguia@gmail.com

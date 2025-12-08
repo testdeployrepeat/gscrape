@@ -1691,7 +1691,7 @@ async function startSingleScraping() {
 
   // Start timer
   startTimer();
-
+  await window.electronAPI.resetScrapingState(); // Reset scraper state on new start
   const result = await window.electronAPI.startScraping(options);
 
   // Stop timer
@@ -1894,7 +1894,7 @@ async function startBulkScraping(resumedTimestamp = null) {
     }
   }
 
-  await window.electronAPI.saveHistory(history);
+  window.electronAPI.saveHistory(history);
   renderHistory();
 
   // Track current bulk operation - if resuming, preserve resume info
@@ -1947,6 +1947,7 @@ async function startBulkScraping(resumedTimestamp = null) {
 
   // Start timer
   startTimer();
+  await window.electronAPI.resetScrapingState(); // Reset scraper state on new start
   const queryStartTimes = [];
 
   // Track query index at outer scope so it's available after scraping ends
@@ -2068,11 +2069,10 @@ async function startBulkScraping(resumedTimestamp = null) {
               history.searches[processingRecordIndex].data = [...scrapedData];
             }
 
-            // Save history asynchronously (don't wait) to avoid blocking next query
-            window.electronAPI.saveHistory(history);
-
             // Update UI periodically (every 3rd completion) to reduce DOM overhead
             if (completedQueries % 3 === 0 || completedQueries === bulkQueries.length) {
+              // Save history asynchronously (don't wait)
+              window.electronAPI.saveHistory(history);
               renderResults(scrapedData);
               updateStats();
             }
@@ -2311,7 +2311,8 @@ async function startBulkScraping(resumedTimestamp = null) {
           }
 
           // Save history after each query since we're updating the main bulk record
-          await window.electronAPI.saveHistory(history);
+          // Save history asynchronously (don't wait)
+          window.electronAPI.saveHistory(history);
 
           // Update UI immediately - note: for bulk operations, results are already in the main bulk record
           renderResults(scrapedData);
@@ -2377,7 +2378,7 @@ async function startBulkScraping(resumedTimestamp = null) {
       // Update outer-scope currentQueryIndex for progress tracking
       currentQueryIndex = i + 1;
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // Check if normal mode completed all queries successfully
