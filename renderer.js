@@ -2067,6 +2067,46 @@ async function startBulkScraping(resumedTimestamp = null) {
   window.electronAPI.saveHistory(history);
   renderHistory();
 
+  // Auto-select the newly created record for live monitoring
+  setTimeout(() => {
+    const newHistoryItem = document.querySelector(`.history-item[data-timestamp="${timestamp}"]`);
+    if (newHistoryItem) {
+      // Remove any existing selections
+      document.querySelectorAll('.history-item').forEach(item => {
+        item.classList.remove('selected');
+      });
+      // Select the new item
+      newHistoryItem.classList.add('selected');
+
+      // Load and display the new record's data
+      const record = history.searches.find(s => s.timestamp === timestamp);
+      if (record) {
+        if (record.sessionFile) {
+          window.electronAPI.getSessionData(record.sessionFile).then(sessionData => {
+            if (sessionData && Array.isArray(sessionData)) {
+              scrapedData = sessionData;
+            } else {
+              scrapedData = record.data || [];
+            }
+            renderResults(scrapedData);
+            updateStats(scrapedData);
+            window.currentDisplayedRecord = record;
+          }).catch(() => {
+            scrapedData = record.data || [];
+            renderResults(scrapedData);
+            updateStats(scrapedData);
+            window.currentDisplayedRecord = record;
+          });
+        } else {
+          scrapedData = record.data || [];
+          renderResults(scrapedData);
+          updateStats(scrapedData);
+          window.currentDisplayedRecord = record;
+        }
+      }
+    }
+  }, 100); // Small delay to ensure DOM is updated
+
   // Track current bulk operation - if resuming, preserve resume info
   if (resumedTimestamp && currentBulkOperation && currentBulkOperation.resumedFromRecord) {
     // This is a resumed operation, update the existing tracking info
@@ -2361,16 +2401,50 @@ async function startBulkScraping(resumedTimestamp = null) {
               history.searches[processingRecordIndex].data = [];
             }
 
-            // Update UI periodically (every 3rd completion) to reduce DOM overhead
-            if (completedQueries % 3 === 0 || completedQueries === bulkQueries.length) {
+            // Queue-based UI updates to prevent race conditions with many parallel workers
+            // Create update queue if it doesn't exist
+            if (!window.fastModeUpdateQueue) {
+              window.fastModeUpdateQueue = Promise.resolve();
+            }
+
+            // Add this update to the queue to ensure sequential processing
+            window.fastModeUpdateQueue = window.fastModeUpdateQueue.then(async () => {
               // Save to session file
               await window.electronAPI.saveSessionData(timestamp, scrapedData);
 
+              // Update the count in the history record to match current scraped data length
+              const processingRecordIndex = history.searches.findIndex(item =>
+                item.timestamp === timestamp && item.status === 'processing' && item.isBulk
+              );
+              if (processingRecordIndex !== -1) {
+                history.searches[processingRecordIndex].count = scrapedData.length;
+              }
+
               // Save history metadata asynchronously
               window.electronAPI.saveHistory(history);
+
+              // Update the specific history item in the UI if it exists
+              const historyItem = document.querySelector(`.history-item[data-timestamp="${timestamp}"]`);
+              if (historyItem) {
+                const metaDiv = historyItem.querySelector('.history-meta');
+                if (metaDiv) {
+                  // Find and update the results count in the meta div
+                  const metaText = metaDiv.innerHTML;
+                  // Update the results count in the history item display
+                  const resultsSpan = metaDiv.textContent.match(/(\d+)\s*results/);
+                  if (resultsSpan) {
+                    // Replace the old count with the new one
+                    metaDiv.innerHTML = metaText.replace(/\d+\s*results/, `${scrapedData.length} results`);
+                  } else {
+                    // If no results text found, add it
+                    metaDiv.innerHTML = `${scrapedData.length} results • ${new Date(timestamp).toLocaleString()}`;
+                  }
+                }
+              }
+
               renderResults(scrapedData);
               updateStats(scrapedData); // Pass the current scraped data to update stats
-            }
+            });
 
             progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses`;
             progressText.style.color = 'var(--success)';
@@ -2629,8 +2703,8 @@ async function startBulkScraping(resumedTimestamp = null) {
               }
             }
 
-            // Update total count
-            history.searches[processingRecordIndex].count += result.data.length;
+            // Update total count to match current scraped data length for consistency
+            history.searches[processingRecordIndex].count = scrapedData.length;
 
             // Update stats
             const currentData = scrapedData;
@@ -2659,6 +2733,25 @@ async function startBulkScraping(resumedTimestamp = null) {
 
           // Save history metadata after each query
           window.electronAPI.saveHistory(history);
+
+          // Update the specific history item in the UI if it exists
+          const historyItem = document.querySelector(`.history-item[data-timestamp="${timestamp}"]`);
+          if (historyItem) {
+            const metaDiv = historyItem.querySelector('.history-meta');
+            if (metaDiv) {
+              // Find and update the results count in the meta div
+              const metaText = metaDiv.innerHTML;
+              // Update the results count in the history item display
+              const resultsSpan = metaDiv.textContent.match(/(\d+)\s*results/);
+              if (resultsSpan) {
+                // Replace the old count with the new one
+                metaDiv.innerHTML = metaText.replace(/\d+\s*results/, `${scrapedData.length} results`);
+              } else {
+                // If no results text found, add it
+                metaDiv.innerHTML = `${scrapedData.length} results • ${new Date(timestamp).toLocaleString()}`;
+              }
+            }
+          }
 
           // Update UI immediately - note: for bulk operations, results are already in the main bulk record
           renderResults(scrapedData);
@@ -2717,6 +2810,25 @@ async function startBulkScraping(resumedTimestamp = null) {
         if (progressPercent) progressPercent.textContent = `${progressPercentValue}%`;
       }
 
+
+      // Update the specific history item in the UI if it exists
+      const historyItem = document.querySelector(`.history-item[data-timestamp="${timestamp}"]`);
+      if (historyItem) {
+        const metaDiv = historyItem.querySelector('.history-meta');
+        if (metaDiv) {
+          // Find and update the results count in the meta div
+          const metaText = metaDiv.innerHTML;
+          // Update the results count in the history item display
+          const resultsSpan = metaDiv.textContent.match(/(\d+)\s*results/);
+          if (resultsSpan) {
+            // Replace the old count with the new one
+            metaDiv.innerHTML = metaText.replace(/\d+\s*results/, `${scrapedData.length} results`);
+          } else {
+            // If no results text found, add it
+            metaDiv.innerHTML = `${scrapedData.length} results • ${new Date(timestamp).toLocaleString()}`;
+          }
+        }
+      }
 
       // Save progress
       localStorage.setItem(resumeKey, (i + 1).toString());
@@ -2803,6 +2915,20 @@ async function startBulkScraping(resumedTimestamp = null) {
     if (progressPercent) progressPercent.textContent = '100%';
     document.getElementById('bulkProgress').style.display = 'block';
     document.getElementById('fastBulkProgress').style.display = 'none';
+
+    // Update the query counts to show completion
+    if (document.getElementById('currentQuery')) {
+      document.getElementById('currentQuery').textContent = bulkQueries.length;
+    }
+    if (document.getElementById('totalQueries')) {
+      document.getElementById('totalQueries').textContent = bulkQueries.length;
+    }
+    if (document.getElementById('fastCompletedQueries')) {
+      document.getElementById('fastCompletedQueries').textContent = bulkQueries.length;
+    }
+    if (document.getElementById('fastTotalQueries')) {
+      document.getElementById('fastTotalQueries').textContent = bulkQueries.length;
+    }
     return;
   }
 

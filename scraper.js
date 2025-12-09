@@ -357,11 +357,20 @@ async function scrapeGoogleMaps(options, progressCallback) {
 
     progressCallback({ status: 'navigating', message: `Searching for "${searchQuery}"...` });
 
-    // Use a more reliable navigation method
-    await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`, {
-      waitUntil: 'domcontentloaded', // Change to domcontentloaded for faster initial load
-      timeout: 60000
-    });
+    // Use a more reliable navigation method with timeout
+    try {
+      await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`, {
+        waitUntil: 'domcontentloaded', // Change to domcontentloaded for faster initial load
+        timeout: 60000 // Standard timeout of 1 minute
+      });
+    } catch (navigationError) {
+      if (navigationError.name === 'TimeoutError') {
+        console.log('Navigation timeout occurred, but continuing with page that partially loaded...');
+        // Continue execution as some content might have loaded
+      } else {
+        throw navigationError; // Re-throw if it's not a timeout error
+      }
+    }
 
     // Race condition: Wait for EITHER results to load OR consent banner to appear
     // This is much faster than waiting for timeout
@@ -510,11 +519,23 @@ async function scrapeGoogleMaps(options, progressCallback) {
 
               const parts = text.split('·').map(p => p.trim());
               parts.forEach(part => {
-                // Phone number detection
-                if (part.match(/(\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}/)) {
-                  data.phone = part;
+                // First, extract phone numbers from the part if they exist
+                const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
+                const phoneMatch = part.match(phoneRegex);
+
+                if (phoneMatch) {
+                  data.phone = phoneMatch[0].trim();
+                  // Remove the phone number from the part to avoid it being treated as address
+                  const remainingText = part.replace(phoneMatch[0], '').trim();
+                  // Also try to extract an address from what remains after removing the phone
+                  if (remainingText && remainingText.length > 5) {
+                    // Check if remaining text looks like an address
+                    if (remainingText.toLowerCase().match(/(st\.?|street|ave\.?|avenue|rd\.?|road|blvd\.?|boulevard|dr\.?|drive|ln\.?|lane|way|pl\.?|place|cir\.?|circle|court|ct\.?|highway|hwy|pkwy|parkway|square|sq|terrace|ter|trail|trl|loop)/i)) {
+                      data.address = remainingText.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
+                    }
+                  }
                 }
-                // Address detection - exclude ratings, stars, reviews
+                // If no phone number found, try to extract address
                 else if (part.match(/\d/) && !part.includes('star')) {
                   // Skip ratings like "4.9(162)" or "4.9 (162)"
                   if (part.match(/^\d\.\d+\s*\(\d+\)/)) return;
@@ -526,9 +547,18 @@ async function scrapeGoogleMaps(options, progressCallback) {
                   // Skip if it looks like a rating number
                   if (part.match(/^\d\.\d+$/)) return;
 
-                  const cleanedAddress = part.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
-                  if (cleanedAddress.length > 5 && !cleanedAddress.match(/^\d+$/)) {
-                    data.address = cleanedAddress;
+                  // Check if this looks like an address (contains common address indicators)
+                  if (part.toLowerCase().match(/(st\.?|street|ave\.?|avenue|rd\.?|road|blvd\.?|boulevard|dr\.?|drive|ln\.?|lane|way|pl\.?|place|cir\.?|circle|court|ct\.?|highway|hwy|pkwy|parkway|square|sq|terrace|ter|trail|trl|loop)/i)) {
+                    const cleanedAddress = part.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
+                    if (cleanedAddress.length > 5 && !cleanedAddress.match(/^\d+$/)) {
+                      data.address = cleanedAddress;
+                    }
+                  } else {
+                    // If no clear address indicators, be more lenient but still check format
+                    const cleanedAddress = part.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
+                    if (cleanedAddress.length > 5 && !cleanedAddress.match(/^\d+$/) && !cleanedAddress.match(/^\d+\s*\(\d+\)$/)) {
+                      data.address = cleanedAddress;
+                    }
                   }
                 }
               });
@@ -579,6 +609,51 @@ async function scrapeGoogleMaps(options, progressCallback) {
       await extractEmailsInParallel(browser, finalResults, speed, progressCallback, options.emailScrapingLimit, options.deepEmailExtraction);
     }
 
+    // Post-processing: Clean up any phone fields that contain addresses
+    finalResults = finalResults.map(business => {
+      // If phone field contains both address and phone, separate them
+      if (business.phone && business.phone.includes('\n')) {
+        const lines = business.phone.split('\n').map(line => line.trim()).filter(line => line);
+        let cleanPhone = '';
+        let potentialAddress = '';
+
+        for (const line of lines) {
+          // Check if line looks like a phone number
+          if (line.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)) {
+            cleanPhone = line; // Take the phone number line
+          } else {
+            // If not a phone, assume it's an address
+            potentialAddress = line;
+          }
+        }
+
+        // If we have a clean phone and no address yet, assign the address part
+        if (cleanPhone) {
+          business.phone = cleanPhone;
+        }
+        if (potentialAddress && !business.address) {
+          business.address = potentialAddress;
+        }
+      }
+
+      // Additional cleanup: if phone has address-like indicators, try to extract clean phone
+      if (business.phone && !business.phone.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)) {
+        // Extract phone number from text if it exists
+        const phoneMatch = business.phone.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        if (phoneMatch) {
+          const extractedPhone = phoneMatch[0].trim();
+          // If we extracted a phone number that exists in the text, separate it
+          const remainingText = business.phone.replace(extractedPhone, '').trim().replace(/\s+/g, ' ');
+          if (remainingText && !business.address) {
+            business.address = remainingText;
+          }
+          business.phone = extractedPhone;
+        }
+      }
+
+      return business;
+    });
+
     finalResults.forEach(b => delete b.link);
 
     if (shouldStop) {
@@ -598,24 +673,34 @@ async function scrapeGoogleMaps(options, progressCallback) {
     // Properly close the browser with timeout to prevent zombie processes
     if (browser) {
       try {
+        // Check if browser is still connected before attempting to close
+        if (typeof browser.isConnected === 'function' && !browser.isConnected()) {
+          console.log('Browser already disconnected, skipping close operations');
+          return;
+        }
+
         // Close all pages first for cleaner shutdown
         const pages = await browser.pages();
         await Promise.all(pages.map(p => p.close().catch(() => { })));
 
-        // Disconnect and close browser with 3-second timeout
+        // Disconnect and close browser with 10-second timeout (increased from 3 seconds)
         await Promise.race([
           (async () => {
             await browser.close();
           })(),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Browser close timeout')), 3000)
+            setTimeout(() => reject(new Error('Browser close timeout')), 10000)
           )
         ]);
       } catch (closeError) {
         console.error('Error closing browser:', closeError);
-        // Force kill the browser process immediately
+        // Force kill the browser process immediately to prevent zombie processes
         try {
-          browser.process()?.kill('SIGKILL');
+          const process = browser.process();
+          if (process && !process.killed) {
+            process.kill('SIGKILL');
+            console.log('Browser process forcefully killed to prevent zombie process');
+          }
         } catch (killError) {
           console.error('Could not kill browser process:', killError);
         }
