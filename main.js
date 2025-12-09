@@ -131,6 +131,12 @@ function getDataPath() {
     return path.join(userDataPath, 'data');
 }
 
+// Helper function to get sessions directory path
+function getSessionsPath() {
+    const dataDir = getDataPath();
+    return path.join(dataDir, 'sessions');
+}
+
 ipcMain.handle('get-history', async () => {
     try {
         const dataDir = getDataPath();
@@ -146,7 +152,20 @@ ipcMain.handle('clear-history', async () => {
     try {
         const dataDir = getDataPath();
         const historyPath = path.join(dataDir, 'scraped_history.json');
+
+        // 1. Reset history meta file
         await fs.writeFile(historyPath, JSON.stringify({ searches: [] }, null, 2));
+
+        // 2. Clear all session files (delete sessions folder and recreate it)
+        const sessionsDir = getSessionsPath();
+        try {
+            await fs.rm(sessionsDir, { recursive: true, force: true });
+            await fs.mkdir(sessionsDir, { recursive: true });
+        } catch (err) {
+            console.error('Error clearing sessions directory:', err);
+            // Don't fail the whole operation if just folder cleanup fails, but log it
+        }
+
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -168,6 +187,87 @@ ipcMain.handle('save-history', async (event, historyData) => {
         await fs.writeFile(historyPath, JSON.stringify(historyData, null, 2));
         return { success: true };
     } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+// Queue system for file writes to prevent race conditions
+const sessionWriteQueues = new Map();
+
+ipcMain.handle('save-session-data', async (event, { sessionId, data }) => {
+    // Get or initialize the write queue for this session
+    if (!sessionWriteQueues.has(sessionId)) {
+        sessionWriteQueues.set(sessionId, Promise.resolve());
+    }
+
+    // Chain the new write operation to the existing promise
+    const writePromise = sessionWriteQueues.get(sessionId).then(async () => {
+        try {
+            const sessionsDir = getSessionsPath();
+            const sessionPath = path.join(sessionsDir, `${sessionId}.json`);
+
+            // Ensure sessions directory exists
+            try {
+                await fs.access(sessionsDir);
+            } catch {
+                await fs.mkdir(sessionsDir, { recursive: true });
+            }
+
+            // Using temporary file + rename for atomic write
+            const tempPath = `${sessionPath}.tmp`;
+            await fs.writeFile(tempPath, JSON.stringify(data, null, 2));
+            await fs.rename(tempPath, sessionPath);
+
+            return { success: true, filePath: sessionPath };
+        } catch (error) {
+            console.error(`Error saving session data for ${sessionId}:`, error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Update the queue with the new promise
+    sessionWriteQueues.set(sessionId, writePromise);
+
+    // Clean up queue when done (optional, but good for memory)
+    writePromise.finally(() => {
+        if (sessionWriteQueues.get(sessionId) === writePromise) {
+            sessionWriteQueues.delete(sessionId);
+        }
+    });
+
+    return writePromise;
+});
+
+ipcMain.handle('get-session-data', async (event, sessionId) => {
+    try {
+        const sessionsDir = getSessionsPath();
+        const sessionPath = path.join(sessionsDir, `${sessionId}.json`);
+
+        // Check if file exists first
+        try {
+            await fs.access(sessionPath);
+        } catch {
+            // If file doesn't exist, return null so renderer knows it failed/is empty
+            return null;
+        }
+
+        const data = await fs.readFile(sessionPath, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error('Error reading session data:', error);
+        return null;
+    }
+});
+
+ipcMain.handle('delete-session-data', async (event, sessionId) => {
+    try {
+        const sessionsDir = getSessionsPath();
+        const sessionPath = path.join(sessionsDir, `${sessionId}.json`);
+
+        await fs.unlink(sessionPath);
+        return { success: true };
+    } catch (error) {
+        // Ignroe error if file doesn't exist
         return { success: false, error: error.message };
     }
 });

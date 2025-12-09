@@ -31,13 +31,73 @@ function resetStopper() {
  */
 async function handleConsent(page) {
   try {
-    const consentButtonSelector = 'button[aria-label="Accept all"], button[aria-label="I agree"]';
-    await page.waitForSelector(consentButtonSelector, { timeout: 5000, visible: true });
-    await page.click(consentButtonSelector);
-    console.log('Consent button clicked.');
-    await wait(2000); // Wait for page to adjust after consent
+    // Try multiple strategies to find the consent button
+    const strategies = [
+      // Strategy 1: Common aria-labels
+      'button[aria-label="Accept all"]',
+      'button[aria-label="I agree"]',
+      'button[aria-label="Agree to the use of cookies and other data for the purposes described"]',
+
+      // Strategy 2: Forms with specific actions
+      'form[action*="consent"] button',
+      'form[action*="consent"] input[type="submit"]'
+    ];
+
+    // Try CSS selectors first
+    for (const selector of strategies) {
+      if (await page.$(selector)) {
+        await page.click(selector);
+        console.log('Consent button clicked via CSS selector:', selector);
+        await wait(2000);
+        return true;
+      }
+    }
+
+    // Strategy 3: Text content matching (Multi-language support)
+    // English: Accept all, I agree, Accept
+    // French: Tout accepter, J'accept, Accepter
+    // German: Alle akzeptieren, Ich stimme zu, Akzeptieren
+    // Spanish: Aceptar todo, Acepto, Aceptar
+    // Italian: Accetta tutto, Accetto, Accetta
+    const textXpath = `//button[
+      contains(., 'Accept all') or contains(., 'I agree') or contains(., 'Accept') or
+      contains(., 'Tout accepter') or contains(., 'J''accepte') or contains(., 'Accepter') or
+      contains(., 'Alle akzeptieren') or contains(., 'Ich stimme zu') or contains(., 'Akzeptieren') or
+      contains(., 'Aceptar todo') or contains(., 'Acepto') or contains(., 'Aceptar') or
+      contains(., 'Accetta tutto') or contains(., 'Accetto') or contains(., 'Accetta')
+    ]`;
+
+    const buttons = await page.$x(textXpath);
+    if (buttons.length > 0) {
+      // Click the last one as it's usually the primary action in the visible layer
+      await buttons[buttons.length - 1].click();
+      console.log('Consent button clicked via XPath (text match).');
+      await wait(2000);
+      return true; // Return true to indicate consent was handled
+    }
+
+    // Strategy 4: Span text match inside likely buttons (Same languages)
+    const spanXpath = `//span[
+      contains(., 'Accept all') or contains(., 'I agree') or
+      contains(., 'Tout accepter') or contains(., 'J''accepte') or
+      contains(., 'Alle akzeptieren') or contains(., 'Ich stimme zu') or
+      contains(., 'Aceptar todo') or contains(., 'Acepto') or
+      contains(., 'Accetta tutto') or contains(., 'Accetto')
+    ]`;
+
+    const spans = await page.$x(spanXpath);
+    if (spans.length > 0) {
+      await spans[0].click();
+      console.log('Consent clicked via span text match.');
+      await wait(2000);
+      return true; // Return true to indicate consent was handled
+    }
+
+    return false; // No consent handled
   } catch (error) {
-    console.log('Consent screen not found or already handled.');
+    // It's normal to fail if there is no consent banner
+    console.log('Consent screen check check finished (may not verify if one existed).');
+    return false;
   }
 }
 
@@ -81,8 +141,21 @@ async function scrollResultsFeed(page, speed) {
     throw new Error("Could not find the results list to scroll. The page layout may have changed or the page is blocked.");
   }
 
-  // Wait a moment for initial content to load before scrolling (increased for cold starts)
-  await wait(2000);
+  // Smart wait: Wait for items to appear instead of fixed delay
+  try {
+    // Wait up to 3 seconds for at least one result item to load
+    await page.waitForFunction(
+      (selector) => {
+        const el = document.querySelector(selector);
+        return el && el.querySelectorAll('a[href*="/maps/place/"]').length > 0;
+      },
+      { timeout: 3000, polling: 200 },
+      selectedSelector
+    );
+  } catch (e) {
+    // If timeout, just proceed - the scrolling loop handles loading more content
+    console.log("Initial load timeout - proceeding to scroll loop");
+  }
 
   // Event-driven scrolling with exponential backoff
   let lastItemsCount = 0;
@@ -90,7 +163,7 @@ async function scrollResultsFeed(page, speed) {
   let currentDelay = 300; // Start with fast 300ms delay
   const maxDelay = 2500; // Cap at 2.5 seconds for slow connections
   const delayMultiplier = 1.5; // Exponential backoff factor
-  const maxNoChangeAttempts = 10; // Increased: require 10 consecutive no-change cycles before stopping
+  const maxNoChangeAttempts = 5; // Reduced from 10 to 5 for faster end detection
   let totalScrollAttempts = 0;
   const maxTotalAttempts = 100; // Increased safety limit to allow more scrolling
   let hasSeenEndText = false; // Track if we've seen the "end of list" text
@@ -290,52 +363,63 @@ async function scrapeGoogleMaps(options, progressCallback) {
       timeout: 60000
     });
 
-    // Wait for the results to start loading
+    // Race condition: Wait for EITHER results to load OR consent banner to appear
+    // This is much faster than waiting for timeout
+    const resultsSelector = 'div[role="feed"], div[aria-label^="Results for"], #searchbox';
+    // Use common consent indicators for the race
+    const consentSelector = 'button[aria-label="Accept all"], button[aria-label*="Agree"], form[action*="consent"]';
+
     try {
-      await page.waitForSelector('div[role="feed"], div[aria-label^="Results for"], #searchbox', {
-        timeout: 10000
-      });
-    } catch (e) {
-      // Check if there might be a consent banner by looking for consent-related elements
-      const hasConsentBanner = await page.evaluate(() => {
-        // Check for common consent banner elements (case-insensitive without using unsupported flags)
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const hasConsentButton = buttons.some(button => {
-          const label = button.getAttribute('aria-label') || '';
-          return label.toLowerCase().includes('accept') ||
-            label.toLowerCase().includes('agree') ||
-            label.toLowerCase().includes('consent');
-        });
+      // First race: fast check
+      const result = await Promise.race([
+        page.waitForSelector(resultsSelector, { timeout: 10000 }).then(() => 'results'),
+        page.waitForSelector(consentSelector, { timeout: 5000 }).then(() => 'consent'),
+        // Fallback: check for text if selector fails (using function since waitForXpath is deprecated/removed in some versions)
+        page.waitForFunction(() => {
+          const text = document.body.innerText;
+          return text.includes('Before you continue') || text.includes('Avant de continuer') || text.includes('Bevor Sie fortfahren');
+        }, { timeout: 5000 }).then(() => 'consent_text')
+      ]).catch(e => 'timeout');
 
-        // Check for modal dialog which is often used for consent
-        const hasModal = document.querySelector('div[aria-modal="true"]') !== null ||
-          document.querySelector('div[role="dialog"]') !== null;
+      if (result === 'consent' || result === 'consent_text') {
+        console.log('Consent banner detected via race condition!');
+        const handled = await handleConsent(page);
+        if (handled) {
+          // Pass this flag to renderer so it can show the EU warning
+          progressCallback({ status: 'navigating', message: 'Consent accepted. Loading results...', requiresConsent: true });
 
-        return hasConsentButton || hasModal;
-      });
-
-      // Only handle consent if we detect consent-related elements
-      if (hasConsentBanner) {
-        await handleConsent(page);
-
-        // After handling consent, try again to find the selectors
-        try {
-          await page.waitForSelector('div[role="feed"], div[aria-label^="Results for"], #searchbox', {
-            timeout: 10000
-          });
-        } catch (e2) {
-          // If selectors still can't be found after consent handling, throw a helpful error
-          throw new Error('Unable to find search results. If you\'re scraping from EU, please use a VPN or non-EU proxy.');
+          // Wait for results again after handling consent
+          await page.waitForSelector(resultsSelector, { timeout: 10000 });
         }
-      } else {
-        // If no consent banner detected, throw the error directly
+      } else if (result === 'timeout') {
+        // If race timed out (neither found quickly), try robust consent check one more time
+        console.log('Initial race timed out, performing robust consent check...');
+        const handled = await handleConsent(page);
+        if (handled) {
+          progressCallback({ status: 'navigating', message: 'Consent accepted. Loading results...', requiresConsent: true });
+        }
+        // Then wait for results strictly
+        await page.waitForSelector(resultsSelector, { timeout: 10000 });
+      }
+      // If result === 'results', we're good to go!
+
+    } catch (e) {
+      console.log('Error during startup sequence, trying final fallback...');
+      // Final fallback: just try to find results or throw
+      try {
+        await page.waitForSelector(resultsSelector, { timeout: 5000 });
+      } catch (finalErr) {
         throw new Error('Unable to find search results. If you\'re scraping from EU, please use a VPN or non-EU proxy.');
       }
     }
 
     // SMART WAIT: Wait for actual business listings to appear instead of hard sleep
+    // Reduced timeout and added safety check to skip if elements already exist
     try {
-      await page.waitForSelector('div[role="feed"] > div > div[jsaction]', { timeout: 7000 });
+      const hasListings = await page.$('div[role="feed"] > div > div[jsaction]');
+      if (!hasListings) {
+        await page.waitForSelector('div[role="feed"] > div > div[jsaction]', { timeout: 4000 });
+      }
     } catch (e) {
       // If items don't appear quickly, we continue to scrolling which has its own checks
       console.log('Timeout waiting for initial listings, proceeding to scroll...');

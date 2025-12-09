@@ -8,6 +8,7 @@ let currentBulkOperation = null; // Track current bulk operation
 let startTime = null;
 let timerInterval = null;
 let rateLimitAlertShown = false; // Flag to track if rate limit alert has been shown in current session
+let euWarningShown = false; // Flag to track if EU warning has been shown in current session
 
 // Pagination for live results (performance optimization)
 const RESULTS_PAGE_SIZE = 20;
@@ -106,7 +107,7 @@ try {
 // This prevents duplicate event listeners when renderHistory is called multiple times
 function setupHistoryEventDelegation() {
   // Helper function to handle history item click (display results)
-  function handleHistoryItemClick(e, container) {
+  async function handleHistoryItemClick(e, container) {
     const historyItem = e.target.closest('.history-item');
     if (!historyItem) return;
 
@@ -122,17 +123,35 @@ function setupHistoryEventDelegation() {
 
     // Find the matching history record
     const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
-    if (!record || !record.data) return;
+    if (!record) return;
 
     // Display the results
-    scrapedData = record.data;
-    renderResults(record.data);
+    if (record.sessionFile) {
+      try {
+        // Load data from separate session file
+        const sessionData = await window.electronAPI.getSessionData(record.sessionFile);
+        if (sessionData && Array.isArray(sessionData)) {
+          scrapedData = sessionData;
+        } else {
+          scrapedData = record.data || [];
+        }
+      } catch (error) {
+        console.error('Error loading session data:', error);
+        showCustomAlert('Error', 'Failed to load session data. The file may be missing.');
+        scrapedData = record.data || [];
+      }
+    } else {
+      // Legacy: use data directly from record
+      scrapedData = record.data || [];
+    }
+
+    renderResults(scrapedData);
 
     // Track the currently displayed record for export button functionality
     window.currentDisplayedRecord = record;
 
     // Update stats to show data from the selected record
-    updateStats(record.data);
+    updateStats(scrapedData);
 
     // Update progress display based on record type
     if (record.isBulk && record.bulkData) {
@@ -225,7 +244,8 @@ function setupHistoryEventDelegation() {
     const timestamp = historyItem.dataset.timestamp;
 
     const record = history.searches.find(s => s.query === query && s.timestamp === timestamp);
-    if (!record || !record.data) return;
+    // Modified: Check if record exists, not just if data exists (since data might be in session file)
+    if (!record) return;
 
     const selectedCount = selectedHistoryItems.size;
 
@@ -253,12 +273,28 @@ function setupHistoryEventDelegation() {
     if (!record) return;
 
     if (confirm(`Are you sure you want to delete this record?\n\nQuery: ${record.query}`)) {
+      // Cleanup session data and resume keys
+      if (record.isBulk && record.bulkData && record.bulkData.resumeKey) {
+        localStorage.removeItem(record.bulkData.resumeKey);
+      }
+      if (record.sessionFile) {
+        window.electronAPI.deleteSessionData(record.sessionFile).catch(err => console.error('Failed to delete session file', err));
+      }
+
       history.searches = history.searches.filter(s => s.timestamp !== timestamp);
+
+      // If we deleted the record currently being viewed, clear the UI
+      if (scrapedData === record.data || (record.sessionFile && scrapedData.length > 0 && resultsContainer.innerHTML.includes(record.query))) {
+        clearResults();
+      } else if (selectedHistoryItems.has(timestamp)) {
+        // If it was selected but maybe not viewed, still good to update if we were showing aggregate stats
+        // But safe default is just re-render
+      }
 
       window.electronAPI.saveHistory(history)
         .then(() => {
           renderHistory();
-          updateStats();
+          // updateStats(); // Don't call this, as it defaults to ALL history. We handled the clear above if needed.
         })
         .catch(err => console.error('Error saving history after deletion:', err));
     }
@@ -275,11 +311,26 @@ function setupHistoryEventDelegation() {
       if (!record) return;
 
       if (confirm(`Are you sure you want to delete this record?\n\nQuery: ${record.query}`)) {
+        // Cleanup session data and resume keys
+        if (record.isBulk && record.bulkData && record.bulkData.resumeKey) {
+          localStorage.removeItem(record.bulkData.resumeKey);
+        }
+        if (record.sessionFile) {
+          window.electronAPI.deleteSessionData(record.sessionFile).catch(err => console.error('Failed to delete session file', err));
+        }
+
         history.searches = history.searches.filter(s => s.timestamp !== timestamp);
+
+        // If we deleted the record currently being viewed, clear the UI
+        if (scrapedData === record.data || (record.sessionFile && scrapedData.length > 0)) {
+          // Rough check - can also check if resultsContainer has content
+          clearResults();
+        }
+
         window.electronAPI.saveHistory(history)
           .then(() => {
             renderHistory();
-            updateStats();
+            // updateStats(); 
           })
           .catch(err => console.error('Error saving history after deletion:', err));
       }
@@ -1022,6 +1073,7 @@ function renderHistory() {
   // Show regular history
   if (regularHistory.length === 0) {
     historyContainer.innerHTML = '<p class="empty-text">No history yet</p>';
+    selectAllLink.style.display = 'none';
   } else {
     // Show selection controls
     selectAllLink.style.display = 'inline';
@@ -1382,7 +1434,7 @@ function showQueryStatusModal(title, content, timestamp) {
     selectAllBtn.style.textDecoration = allChecked ? 'underline' : 'none';
   });
 
-  exportBtn.addEventListener('click', () => {
+  exportBtn.addEventListener('click', async () => {
     const selectedCheckboxes = modal.querySelectorAll('.query-checkbox:checked');
     if (selectedCheckboxes.length === 0) {
       alert('Please select at least one query to export.');
@@ -1391,7 +1443,33 @@ function showQueryStatusModal(title, content, timestamp) {
 
     // Get the original bulk record to access the full data
     const bulkRecord = history.searches.find(s => s.timestamp === timestamp);
-    if (!bulkRecord || !bulkRecord.data || !Array.isArray(bulkRecord.data)) {
+    if (!bulkRecord) {
+      alert('Record not found.');
+      return;
+    }
+
+    // Load session data if needed
+    let recordData = bulkRecord.data;
+    if (bulkRecord.sessionFile && (!recordData || recordData.length === 0)) {
+      document.body.style.cursor = 'wait';
+      try {
+        const sessionData = await window.electronAPI.getSessionData(bulkRecord.sessionFile);
+        if (sessionData && Array.isArray(sessionData)) {
+          recordData = sessionData;
+          // Temporarily attach for this operation
+          bulkRecord.tempData = sessionData;
+        }
+      } catch (e) {
+        console.error('Failed to load session data:', e);
+      } finally {
+        document.body.style.cursor = 'default';
+      }
+    }
+
+    // Use tempData if available (for session file data) or normal data
+    const dataToUse = bulkRecord.tempData || bulkRecord.data;
+
+    if (!dataToUse || !Array.isArray(dataToUse) || dataToUse.length === 0) {
       alert('No data available for export.');
       return;
     }
@@ -1401,9 +1479,9 @@ function showQueryStatusModal(title, content, timestamp) {
 
     // Debug logging
     console.log('Selected locations:', selectedLocations);
-    console.log('Total items in bulk record:', bulkRecord.data.length);
+    console.log('Total items in bulk record:', dataToUse.length);
 
-    const filteredData = bulkRecord.data.filter(item => {
+    const filteredData = dataToUse.filter(item => {
       const itemSearchQuery = item.search_query || '';
 
       // Check if this item matches any of the selected locations
@@ -1481,17 +1559,40 @@ function showQueryStatusModal(title, content, timestamp) {
 }
 
 // Function to export filtered data from selected queries in bulk session
+// Function to export filtered data from selected queries in bulk session
 async function exportFilteredData(bulkRecord, selectedLocations) {
-  if (!bulkRecord || !bulkRecord.data || !Array.isArray(bulkRecord.data) || !selectedLocations || selectedLocations.length === 0) {
+  // Ensure we have data
+  let dataToUse = bulkRecord.data;
+
+  // Check if we have temp data from the modal
+  if (bulkRecord.tempData) {
+    dataToUse = bulkRecord.tempData;
+  }
+  // Or check if we need to load it now
+  else if (bulkRecord.sessionFile && (!dataToUse || dataToUse.length === 0)) {
+    document.body.style.cursor = 'wait';
+    try {
+      const sessionData = await window.electronAPI.getSessionData(bulkRecord.sessionFile);
+      if (sessionData && Array.isArray(sessionData)) {
+        dataToUse = sessionData;
+      }
+    } catch (e) {
+      console.error('Failed to load session data:', e);
+    } finally {
+      document.body.style.cursor = 'default';
+    }
+  }
+
+  if (!bulkRecord || !dataToUse || !Array.isArray(dataToUse) || !selectedLocations || selectedLocations.length === 0) {
     alert('No data to export');
     return;
   }
 
   // Filter the bulk data based on selected queries
   console.log('Filtering data for locations:', selectedLocations);
-  console.log('Total data items:', bulkRecord.data.length);
+  console.log('Total data items:', dataToUse.length);
 
-  const filteredData = bulkRecord.data.filter(item => {
+  const filteredData = dataToUse.filter(item => {
     const itemSearchQuery = item.search_query || '';
 
     const matches = selectedLocations.some(selectedLoc => {
@@ -1703,7 +1804,10 @@ async function startSingleScraping() {
   // Clear previous results
   scrapedData = [];
   resultsContainer.innerHTML = '<div class="empty-state"><p>Scraping in progress...</p></div>';
-  updateStats();
+  // Clear previous results
+  scrapedData = [];
+  resultsContainer.innerHTML = '<div class="empty-state"><p>Scraping in progress...</p></div>';
+  updateStats([]); // Explicitly pass empty array to clear stats
 
   const options = {
     niche,
@@ -1757,11 +1861,25 @@ async function startSingleScraping() {
     scrapedData = dataWithQuery;
     renderResults(dataWithQuery);
 
+    const timestamp = new Date().toISOString();
+
+    // Save to separate session file
+    await window.electronAPI.saveSessionData(timestamp, dataWithQuery);
+
+    const stats = {
+      companies: result.data.length,
+      websites: result.data.filter(i => i.website).length,
+      phones: result.data.filter(i => i.phone).length,
+      emails: result.data.filter(i => i.email).length
+    };
+
     history.searches.push({
       query,
       count: result.data.length,
-      timestamp: new Date().toISOString(),
-      data: dataWithQuery // Save the actual data in history with query and location info
+      stats, // Save stats for display
+      timestamp: timestamp,
+      data: [], // Keep data empty in main file
+      sessionFile: timestamp // Reference to session file
     });
     renderHistory(); // Render immediately before async save
     window.electronAPI.saveHistory(history); // Save asynchronously (no await)
@@ -1803,6 +1921,21 @@ async function startSingleScraping() {
       });
     }, 100);
   }
+}
+
+// Helper to get global offset logic (moved out for clarity)
+function calculateGlobalOffset(resumedTimestamp, bulkQueries) {
+  let globalCompletedOffset = 0;
+  let globalTotalQueries = bulkQueries.length;
+
+  if (resumedTimestamp) {
+    const historyItem = history.searches.find(s => s.timestamp === resumedTimestamp);
+    if (historyItem && historyItem.bulkData) {
+      globalTotalQueries = historyItem.bulkData.totalQueries || bulkQueries.length;
+      globalCompletedOffset = globalTotalQueries - bulkQueries.length;
+    }
+  }
+  return { globalCompletedOffset, globalTotalQueries };
 }
 
 async function startBulkScraping(resumedTimestamp = null) {
@@ -1883,27 +2016,8 @@ async function startBulkScraping(resumedTimestamp = null) {
   const savedIndex = localStorage.getItem(resumeKey);
   const startIndex = savedIndex ? parseInt(savedIndex) : 0;
 
-  // Create bulk history record
-  const bulkHistoryTimestamp = new Date().toISOString(); // Use a different variable name to avoid conflict
-
-  // GLOBAL OFFSET logic for resumed sessions
-  // Initial values for new sessions
-  let globalCompletedOffset = 0;
-  let globalTotalQueries = bulkQueries.length;
-
-  if (resumedTimestamp) {
-    const historyItem = history.searches.find(s => s.timestamp === resumedTimestamp);
-    if (historyItem && historyItem.bulkData) {
-      globalTotalQueries = historyItem.bulkData.totalQueries || bulkQueries.length;
-      // If resuming, 'bulkQueries' passed to this function is likely the subset of remaining queries.
-      // We calculate offset based on the difference or explicit data.
-      // If 'bulkQueries' is remaining items (length 304), and total was 466:
-      // Offset = 466 - 304 = 162.
-      // Or trust the record's completed count? 
-      // Let's trust total - current length, as that's safer if bulkData.completedQueries is out of sync.
-      globalCompletedOffset = globalTotalQueries - bulkQueries.length;
-    }
-  }
+  // Calculate global offset for progress tracking
+  const { globalCompletedOffset, globalTotalQueries } = calculateGlobalOffset(resumedTimestamp, bulkQueries);
 
   const queryStatus = {};
   bulkQueries.forEach((location, index) => {
@@ -1913,15 +2027,19 @@ async function startBulkScraping(resumedTimestamp = null) {
     };
   });
 
+  // Create bulk history record using the SAME timestamp as the session ID
+  // This ensures consistnecy for finding the record later
+
   // Only create a new processing record if this is not a resumed operation
   if (!resumedTimestamp) {
     history.searches.push({
       query: `Bulk: ${niche}`,
       count: 0,
-      timestamp: bulkHistoryTimestamp,
+      timestamp: timestamp, // Use the consistent timestamp ID
       status: 'processing',
       isBulk: true,
-      data: [],
+      data: [], // Keep data empty in main history file to prevent corruption
+      sessionFile: timestamp, // Reference to the separate session file
       bulkData: {
         niche,
         queries: bulkQueries,
@@ -1990,6 +2108,12 @@ async function startBulkScraping(resumedTimestamp = null) {
   // Update total count to show GLOBAL total (not just the remaining subset)
   totalQueries.textContent = globalTotalQueries;
 
+  // Initialize current query to completed offset
+  const initialCompleted = globalCompletedOffset;
+  if (document.getElementById('currentQuery')) {
+    document.getElementById('currentQuery').textContent = initialCompleted;
+  }
+
   // Initialize or keep existing scraped data
   if (!scrapedData) scrapedData = [];
   let totalResults = 0;
@@ -2007,6 +2131,28 @@ async function startBulkScraping(resumedTimestamp = null) {
   // Track query index at outer scope so it's available after scraping ends
   // (used by both fast and normal modes)
   let currentQueryIndex = startIndex;
+
+  // IMPORTANT: If resuming, load existing session data first to prevent data loss
+  if (resumedTimestamp) {
+    const record = history.searches.find(s => s.timestamp === resumedTimestamp);
+    if (record && record.sessionFile) {
+      try {
+        const existingData = await window.electronAPI.getSessionData(record.sessionFile);
+        if (existingData && Array.isArray(existingData)) {
+          scrapedData = existingData;
+          totalResults = existingData.length;
+          console.log(`Resumed session: Loaded ${existingData.length} existing records`);
+
+          // Re-render results to show what we have so far
+          renderResults(scrapedData);
+          updateStats(scrapedData);
+        }
+      } catch (err) {
+        console.error('Error loading existing session data for resume:', err);
+        // Continue anyway, but warn?
+      }
+    }
+  }
 
   // Check if running in fast mode for parallel processing
   if (selectedSpeed === 'fast' || selectedSpeed === 'ultra-fast') {
@@ -2057,11 +2203,20 @@ async function startBulkScraping(resumedTimestamp = null) {
         const query = `${niche} ${preposition} ${location}`;
 
         // Update progress
-        const globalCurrentIndex = globalCompletedOffset + completedQueries + 1;
-        progressText.textContent = `${niche} in ${location}: Scraping... (${globalCurrentIndex}/${globalTotalQueries})`;
+        const globalCurrentIndex = globalCompletedOffset + completedQueries; // This is completed count before start
+        progressText.textContent = `${niche} in ${location}: Scraping... (${globalCurrentIndex + 1}/${globalTotalQueries})`;
         progressText.style.color = 'var(--text-primary)';
-        currentQuery.textContent = queryIndex + 1;
+        currentQuery.textContent = globalCurrentIndex; // Show completed count
         currentSearchQuery.textContent = query;
+
+
+        // Clear UI for the new query if it's the very first one being run in this session
+        // FIXED: specific check for first query index to prevent parallel workers from repeatedly clearing data
+        if (queryIndex === startIndex && !resumedTimestamp) {
+          scrapedData = [];
+          renderResults([]);
+          updateStats([]);
+        }
 
         // For resumed sessions, use the original extraction usage settings
         let useExtractEmails = extractEmailsBulkCheckbox.checked;
@@ -2190,13 +2345,25 @@ async function startBulkScraping(resumedTimestamp = null) {
               // Update total count
               history.searches[processingRecordIndex].count += result.data.length;
 
-              // Update the main bulk record's data with the current accumulated data
-              history.searches[processingRecordIndex].data = [...scrapedData];
+              // Update stats
+              const currentData = scrapedData; // full data is in scrapedData
+              history.searches[processingRecordIndex].stats = {
+                companies: currentData.length,
+                websites: currentData.filter(i => i.website).length,
+                phones: currentData.filter(i => i.phone).length,
+                emails: currentData.filter(i => i.email).length
+              };
+
+              // Update the main bulk record's data with empty array (data stored in session file)
+              history.searches[processingRecordIndex].data = [];
             }
 
             // Update UI periodically (every 3rd completion) to reduce DOM overhead
             if (completedQueries % 3 === 0 || completedQueries === bulkQueries.length) {
-              // Save history asynchronously (don't wait)
+              // Save to session file
+              await window.electronAPI.saveSessionData(timestamp, scrapedData);
+
+              // Save history metadata asynchronously
               window.electronAPI.saveHistory(history);
               renderResults(scrapedData);
               updateStats();
@@ -2373,7 +2540,8 @@ async function startBulkScraping(resumedTimestamp = null) {
       }
       const query = `${niche} ${preposition} ${location}`;
 
-      currentQuery.textContent = i + 1;
+      const completedCount = globalCompletedOffset + i;
+      currentQuery.textContent = completedCount;
       currentSearchQuery.textContent = query;
 
       progressText.textContent = `Processing: ${query}`;
@@ -2445,12 +2613,32 @@ async function startBulkScraping(resumedTimestamp = null) {
             // Update total count
             history.searches[processingRecordIndex].count += result.data.length;
 
-            // Update the main bulk record's data with the current accumulated data
-            history.searches[processingRecordIndex].data = [...scrapedData];
+            // Update stats
+            const currentData = scrapedData;
+            history.searches[processingRecordIndex].stats = {
+              companies: currentData.length,
+              websites: currentData.filter(i => i.website).length,
+              phones: currentData.filter(i => i.phone).length,
+              emails: currentData.filter(i => i.email).length
+            };
+
+            // Update the main bulk record's data - KEEP EMPTY, save to session file instead
+            history.searches[processingRecordIndex].data = [];
           }
 
-          // Save history after each query since we're updating the main bulk record
-          // Save history asynchronously (don't wait)
+          // Save scraped data to session file
+          await window.electronAPI.saveSessionData(timestamp, scrapedData);
+
+
+          // CRITICAL FIX: Ensure sessionFile property is set so export can find the data is file
+          // Only set this if we found the record to avoid "undefined" errors
+          if (processingRecordIndex !== -1) {
+            history.searches[processingRecordIndex].sessionFile = timestamp;
+          } else {
+            console.warn(`Could not find processing record for timestamp ${timestamp} to update sessionFile`);
+          }
+
+          // Save history metadata after each query
           window.electronAPI.saveHistory(history);
 
           // Update UI immediately - note: for bulk operations, results are already in the main bulk record
@@ -2629,7 +2817,14 @@ async function startBulkScraping(resumedTimestamp = null) {
 
       history.searches[processingRecordIndex].query = `Bulk: ${niche} (${actualCompletedCount}/${history.searches[processingRecordIndex].bulkData.totalQueries} completed)`;
       history.searches[processingRecordIndex].count = filteredData.length;
-      history.searches[processingRecordIndex].data = filteredData;
+      history.searches[processingRecordIndex].stats = {
+        companies: filteredData.length,
+        websites: filteredData.filter(i => i.website).length,
+        phones: filteredData.filter(i => i.phone).length,
+        emails: filteredData.filter(i => i.email).length
+      };
+
+      history.searches[processingRecordIndex].data = []; // Keep main data empty, it was saved to session file
       history.searches[processingRecordIndex].status = 'paused';
 
       const remainingQueries = [];
@@ -2689,6 +2884,22 @@ async function stopScraping() {
     headerStartBtn.style.opacity = '0.6';
 
     await window.electronAPI.stopScraping();
+
+    // Update the record status in history to 'paused' so Resume button appears
+    const processingRecord = history.searches.find(s => s.status === 'processing' && s.isBulk);
+    if (processingRecord) {
+      processingRecord.status = 'paused';
+      // Ensure progress percent is saved
+      if (processingRecord.bulkData) {
+        const total = processingRecord.bulkData.totalQueries || 1;
+        const completed = processingRecord.bulkData.completedQueries || 0;
+        const pct = Math.round((completed / total) * 100);
+        processingRecord.bulkData.progressPercent = pct;
+      }
+      // Save the updated status
+      window.electronAPI.saveHistory(history);
+      renderHistory(); // Refresh list to show Resume button
+    }
 
     // Update the progress text (same element is used for both fast and regular modes)
     document.getElementById('progressText').textContent = '⏸ Stopping scraper...';
@@ -2760,9 +2971,58 @@ function showStopConfirmationModal() {
 }
 
 
+// Show EU Warning Toast
+function showEuWarningToast() {
+  // Check if already shown
+  if (euWarningShown) return;
+  euWarningShown = true;
+
+  // Remove existing toast if any
+  const existingToast = document.querySelector('.eu-warning-toast');
+  if (existingToast) existingToast.remove();
+
+  const toast = document.createElement('div');
+  toast.className = 'eu-warning-toast';
+  toast.innerHTML = `
+    <div class="eu-warning-icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+      </svg>
+    </div>
+    <div class="eu-warning-content">
+      EU Google Maps works differently. Use a VPN to scrape faster.
+    </div>
+    <button class="eu-warning-close" aria-label="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+      </svg>
+    </button>
+  `;
+
+  document.body.appendChild(toast);
+
+  // Close button handler
+  const closeBtn = toast.querySelector('.eu-warning-close');
+  closeBtn.addEventListener('click', () => {
+    toast.classList.add('hiding');
+    setTimeout(() => {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 300);
+  });
+
+  // Auto-dismiss after 10 seconds? User said "close with x button", didn't specify auto-dismiss.
+  // Best to leave it until dismissed or maybe a long timeout (e.g. 15s) so it doesn't block forever.
+  // I'll leave it permanent until closed as per "can be closed with an x button"
+}
+
 function updateProgress(progress) {
-  const { status, message, current, total, data } = progress;
+  const { status, message, current, total, data, requiresConsent } = progress;
   const progressSection = document.getElementById('progressSection');
+
+  // Check for EU Warning requirement
+  if (requiresConsent && !euWarningShown) {
+    showEuWarningToast();
+  }
 
   // Ensure progress section is visible
   progressSection.style.display = 'block';
@@ -2773,9 +3033,12 @@ function updateProgress(progress) {
 
   // Update live results if data is provided
   if (data && data.length > 0) {
-    scrapedData = data;
-    renderResults(data);
-    updateStats(data);  // Show stats for live results
+    // Only update live results in single mode to prevent overwriting bulk data
+    if (!isBulkMode) {
+      scrapedData = data;
+      renderResults(data);
+      updateStats(data);  // Show stats for live results
+    }
   }
 
   // Update progress bar
@@ -2840,6 +3103,9 @@ function clearResults() {
   progressText.textContent = 'Ready to scrape';
   progressFill.style.width = '0%';
   if (progressPercent) progressPercent.textContent = '0%';
+
+  // Reset Timer
+  document.getElementById('elapsedTime').textContent = '00:00';
 }
 function renderResults(data) {
   if (!data || data.length === 0) {
@@ -3453,11 +3719,20 @@ function updateStats(dataToShow = null) {
     // Otherwise, calculate totals from all history for general stats
     if (history.searches && history.searches.length > 0) {
       history.searches.forEach(search => {
-        if (search.data) {
+        if (search.data && search.data.length > 0) {
           totalCompanies += search.data.length;
           totalWebsites += search.data.filter(item => item.website).length;
           totalPhones += search.data.filter(item => item.phone).length;
           totalEmails += search.data.filter(item => item.email).length;
+        } else if (search.stats) {
+          // Use saved stats if available (for records where data is offloaded)
+          totalCompanies += (search.stats.companies || 0);
+          totalWebsites += (search.stats.websites || 0);
+          totalPhones += (search.stats.phones || 0);
+          totalEmails += (search.stats.emails || 0);
+        } else if (search.count) {
+          // Fallback to basic count if no detailed stats
+          totalCompanies += search.count;
         }
       });
 
@@ -3813,7 +4088,25 @@ function updateStatsFromSelection() {
 
 // Export function for a single bulk record
 async function exportSingleBulkRecord(record, mode) {
-  if (!record || !record.data || record.data.length === 0) {
+  // Handle data loading from session file if main data is empty
+  let recordData = record.data;
+
+  // If data is offloaded to session file, load it silently
+  if (record.sessionFile && (!recordData || recordData.length === 0)) {
+    document.body.style.cursor = 'wait';
+    try {
+      const sessionData = await window.electronAPI.getSessionData(record.sessionFile);
+      if (sessionData && Array.isArray(sessionData)) {
+        recordData = sessionData;
+      }
+    } catch (e) {
+      console.error('Failed to load session data for export:', e);
+    } finally {
+      document.body.style.cursor = 'default';
+    }
+  }
+
+  if (!record || !recordData || recordData.length === 0) {
     showCustomAlert('No Data', 'No data available to export for this record.');
     return;
   }
@@ -3825,7 +4118,7 @@ async function exportSingleBulkRecord(record, mode) {
     const filename = `${cleanQuery}.${format}`;
 
     const result = await window.electronAPI.exportData({
-      data: record.data,
+      data: recordData,
       format,
       filename
     });
@@ -3884,25 +4177,62 @@ async function exportSingleBulkRecord(record, mode) {
 
 // Export function for a single record
 async function exportSingleRecord(record) {
-  if (!record || !record.data || record.data.length === 0) {
-    showCustomAlert('No Data', 'No data available to export for this record.');
-    return;
-  }
+  // Set loading cursor
+  document.body.style.cursor = 'wait';
 
-  const format = exportFormatSelect.value; // Get selected format from settings
-  const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-  const filename = `${cleanQuery}.${format}`;
+  try {
+    let recordData = record.data;
 
-  const result = await window.electronAPI.exportData({
-    data: record.data,
-    format,
-    filename
-  });
+    // If data is offloaded to session file, load it silently
+    // Fallback: If sessionFile property is missing but it's a bulk record, use timestamp as ID (legacy support)
+    const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
 
-  if (result.success && !result.cancelled) {
-    showCustomAlert('Export Successful', `Data exported to:\n${result.filePath}`);
-  } else if (!result.cancelled) {
-    showCustomAlert('Export Failed', result.error);
+    if (sessionId && (!recordData || recordData.length === 0)) {
+      try {
+        // No popup, just silent load
+        const sessionData = await window.electronAPI.getSessionData(sessionId);
+
+        // Ensure we got a valid array back
+        if (sessionData && Array.isArray(sessionData)) {
+          recordData = sessionData;
+        } else {
+          console.error('Session data load returned invalid format:', sessionData);
+        }
+      } catch (e) {
+        console.error('Failed to load session data for export:', e);
+      }
+    }
+
+    if (!recordData || recordData.length === 0) {
+      document.body.style.cursor = 'default';
+      showCustomAlert('No Data', 'No data available to export for this record.');
+      return;
+    }
+
+    const format = exportFormatSelect.value; // Get selected format from settings
+    const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    const filename = `${cleanQuery}.${format}`;
+
+    const result = await window.electronAPI.exportData({
+      data: recordData,
+      format,
+      filename
+    });
+
+    // Reset cursor before showing result alert
+    document.body.style.cursor = 'default';
+
+    if (result.success && !result.cancelled) {
+      showCustomAlert('Export Successful', `Data exported to:\n${result.filePath}`);
+    } else if (!result.cancelled) {
+      showCustomAlert('Export Failed', result.error);
+    }
+  } catch (error) {
+    document.body.style.cursor = 'default';
+    console.error('Export error:', error);
+    showCustomAlert('Export Error', `An unexpected error occurred: ${error.message}`);
+  } finally {
+    document.body.style.cursor = 'default';
   }
 }
 
@@ -3915,49 +4245,127 @@ async function exportSelectedRecords(mode) {
   }
 
   if (mode === 'single') {
-    // Combine all data into single CSV
-    const allData = [];
-    selectedRecords.forEach(record => {
-      if (record.data && record.data.length > 0) {
-        allData.push(...record.data);
+    // Set loading cursor
+    document.body.style.cursor = 'wait';
+
+    try {
+      // Combine all data into single CSV
+      const allData = [];
+      // For combined export, we need to handle potential async data loading for each record
+      // Using for...of loop to handle await
+      for (const record of selectedRecords) {
+        let recordData = record.data;
+
+        // Load from session file if necessary
+        // Fallback: If sessionFile property is missing but it's a bulk record, use timestamp as ID (legacy support)
+        const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
+
+        if (sessionId && (!recordData || recordData.length === 0)) {
+          try {
+            const sessionData = await window.electronAPI.getSessionData(sessionId);
+            // Ensure we got a valid array back
+            if (sessionData && Array.isArray(sessionData)) {
+              recordData = sessionData;
+            }
+          } catch (e) {
+            console.error(`Failed to load data for record ${record.query}:`, e);
+            continue;
+          }
+        }
+
+        if (recordData && recordData.length > 0) {
+          allData.push(...recordData);
+        }
       }
-    });
 
-    const filename = `gscraped-combined.csv`;
-    const result = await window.electronAPI.exportData({
-      data: allData,
-      format: 'csv',
-      filename
-    });
+      const filename = `gscraped-combined.csv`;
+      const result = await window.electronAPI.exportData({
+        data: allData,
+        format: 'csv',
+        filename
+      });
 
-    if (result.success && !result.cancelled) {
-      showCustomAlert('Export Successful', `Combined data exported to:\n${result.filePath}`);
+      // Reset cursor
+      document.body.style.cursor = 'default';
+
+      if (result.success && !result.cancelled) {
+        showCustomAlert('Export Successful', `Combined data exported to:\n${result.filePath}`);
+      }
+    } catch (error) {
+      document.body.style.cursor = 'default';
+      console.error('Combined export error:', error);
+      showCustomAlert('Export Error', `An error occurred: ${error.message}`);
+    } finally {
+      document.body.style.cursor = 'default';
     }
   } else if (mode === 'separate') {
     // Export separate CSV files
     const folderResult = await window.electronAPI.selectFolder();
 
-    if (folderResult.cancelled) return;
-
-    let successCount = 0;
-    for (const record of selectedRecords) {
-      if (record.data && record.data.length > 0) {
-        // Clean query name for filename
-        const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-        const filename = `${cleanQuery}.csv`;
-
-        const result = await window.electronAPI.exportDataToFolder({
-          data: record.data,
-          format: 'csv',
-          filename,
-          folderPath: folderResult.filePath
-        });
-
-        if (result.success) successCount++;
-      }
+    if (folderResult.cancelled) {
+      // Clear selection
+      selectedHistoryItems.clear();
+      renderHistory();
+      return;
     }
 
-    showCustomAlert('Export Complete', `Successfully exported ${successCount} file(s) to:\n${folderResult.filePath}`);
+    // Set loading cursor
+    document.body.style.cursor = 'wait';
+
+    try {
+      let successCount = 0;
+      for (const record of selectedRecords) {
+        let recordData = record.data;
+
+        // Load from session file if necessary
+        // Fallback: If sessionFile property is missing but it's a bulk record, use timestamp as ID (legacy support)
+        const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
+
+        if (sessionId && (!recordData || recordData.length === 0)) {
+          try {
+            const sessionData = await window.electronAPI.getSessionData(sessionId);
+            // Ensure we got a valid array back
+            if (sessionData && Array.isArray(sessionData)) {
+              recordData = sessionData;
+            }
+          } catch (e) {
+            console.error(`Failed to load data for record ${record.query}:`, e);
+            continue;
+          }
+        }
+
+        if (recordData && recordData.length > 0) {
+          // Clean query name for filename
+          const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+          const filename = `${cleanQuery}.csv`;
+          const format = exportFormatSelect.value; // Get selected format from settings
+
+          const result = await window.electronAPI.exportDataToFolder({
+            data: recordData,
+            format: format,
+            filename,
+            folderPath: folderResult.filePath
+          });
+
+          if (result.success) successCount++;
+        }
+      }
+
+      // Reset cursor
+      document.body.style.cursor = 'default';
+
+      if (successCount > 0) {
+        showCustomAlert('Bulk Export Complete', `Successfully exported ${successCount} files to selected folder.`);
+      } else {
+        showCustomAlert('Export Failed', 'No files were exported. Check logs for details.');
+      }
+    } catch (error) {
+      document.body.style.cursor = 'default';
+      console.error('Bulk export error:', error);
+      showCustomAlert('Export Error', `An error occurred: ${error.message}`);
+    } finally {
+      document.body.style.cursor = 'default';
+    }
   }
 
   // Clear selection
@@ -3981,9 +4389,17 @@ async function deleteSelectedRecords() {
   history.searches = history.searches.filter(s => !selectedHistoryItems.has(s.timestamp));
 
   // Also remove associated bulk resume keys from localStorage for deleted bulk records
+  // Also remove associated bulk resume keys from localStorage and delete session files
   for (const record of recordsToBeDeleted) {
     if (record.isBulk && record.bulkData && record.bulkData.resumeKey) {
       localStorage.removeItem(record.bulkData.resumeKey);
+    }
+
+    // Delete session file if it exists
+    if (record.sessionFile) {
+      window.electronAPI.deleteSessionData(record.sessionFile).catch(err => {
+        console.error('Failed to delete session file', err);
+      });
     }
   }
 
@@ -4026,9 +4442,17 @@ async function deleteSelectedBulkRecords() {
   history.searches = history.searches.filter(s => !selectedBulkItems.includes(s.timestamp));
 
   // Also remove associated bulk resume keys from localStorage
+  // Also remove associated bulk resume keys from localStorage and delete session files
   for (const record of recordsToBeDeleted) {
     if (record.isBulk && record.bulkData && record.bulkData.resumeKey) {
       localStorage.removeItem(record.bulkData.resumeKey);
+    }
+
+    // Delete session file if it exists
+    if (record.sessionFile) {
+      window.electronAPI.deleteSessionData(record.sessionFile).catch(err => {
+        console.error('Failed to delete session file', err);
+      });
     }
   }
 
