@@ -1939,6 +1939,8 @@ function calculateGlobalOffset(resumedTimestamp, bulkQueries) {
 }
 
 async function startBulkScraping(resumedTimestamp = null) {
+  let bulkResults = [];
+  scrapedData = [];
   const niche = bulkNicheInput.value.trim();
   const selectedSpeed = speedSelect.value;
 
@@ -2279,7 +2281,8 @@ async function startBulkScraping(resumedTimestamp = null) {
               search_location: location
             }));
 
-            scrapedData.push(...dataWithQuery);
+            bulkResults.push(...dataWithQuery);
+            scrapedData.push(...dataWithQuery); // Add to scrapedData as well so UI updates properly
             totalResults += result.data.length;
 
             // Find the processing bulk record and update its query status
@@ -2366,7 +2369,7 @@ async function startBulkScraping(resumedTimestamp = null) {
               // Save history metadata asynchronously
               window.electronAPI.saveHistory(history);
               renderResults(scrapedData);
-              updateStats();
+              updateStats(scrapedData); // Pass the current scraped data to update stats
             }
 
             progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses`;
@@ -2474,8 +2477,21 @@ async function startBulkScraping(resumedTimestamp = null) {
       workers.push(processNextQuery());
     }
 
+
+
+  
+
+
+
     // Wait for all workers to complete
+
+
+
     await Promise.all(workers);
+
+
+
+  
 
 
     // After all workers complete, check if operation finished successfully
@@ -2504,6 +2520,9 @@ async function startBulkScraping(resumedTimestamp = null) {
         document.getElementById('progressFill').style.width = '100%';
         document.getElementById('progressPercent').textContent = '100%';
         document.getElementById('fastCompletedQueries').textContent = bulkQueries.length;
+
+        // Save final session data to ensure all results are captured
+        await window.electronAPI.saveSessionData(timestamp, scrapedData);
 
         // Save final history asynchronously (don't wait - already saved after each query)
         window.electronAPI.saveHistory(history);
@@ -2643,7 +2662,7 @@ async function startBulkScraping(resumedTimestamp = null) {
 
           // Update UI immediately - note: for bulk operations, results are already in the main bulk record
           renderResults(scrapedData);
-          updateStats();
+          updateStats(scrapedData); // Pass the current scraped data to update stats
 
           progressText.textContent = `✓ ${query}: Found ${result.data.length} businesses (Total: ${scrapedData.length})`;
           progressText.style.color = 'var(--success)';
@@ -4092,10 +4111,13 @@ async function exportSingleBulkRecord(record, mode) {
   let recordData = record.data;
 
   // If data is offloaded to session file, load it silently
-  if (record.sessionFile && (!recordData || recordData.length === 0)) {
+  // Always try to load session data if sessionFile is available or if it's a bulk record (use timestamp as fallback)
+  const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
+
+  if (sessionId) {
     document.body.style.cursor = 'wait';
     try {
-      const sessionData = await window.electronAPI.getSessionData(record.sessionFile);
+      const sessionData = await window.electronAPI.getSessionData(sessionId);
       if (sessionData && Array.isArray(sessionData)) {
         recordData = sessionData;
       }
@@ -4137,10 +4159,26 @@ async function exportSingleBulkRecord(record, mode) {
     let successCount = 0;
     // If bulkData exists with query-specific data, export each query separately
     if (record.bulkData && record.bulkData.queryStatus) {
+      // For separate export mode, we need to ensure we're using session data if available
+      // Always try to load session data if sessionFile is available or if it's a bulk record (use timestamp as fallback)
+      const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
+      let allRecordData = recordData; // Use the data we already loaded at the beginning of the function
+
+      if (sessionId) {
+        try {
+          const sessionData = await window.electronAPI.getSessionData(sessionId);
+          if (sessionData && Array.isArray(sessionData)) {
+            allRecordData = sessionData;
+          }
+        } catch (e) {
+          console.error('Failed to load session data for separate export:', e);
+        }
+      }
+
       // Export based on query status
       for (let i = 0; i < Object.keys(record.bulkData.queryStatus).length; i++) {
         if (record.bulkData.queryStatus[i] && record.bulkData.queryStatus[i].status === 'completed') {
-          const queryData = record.data.filter(item => item.search_location === record.bulkData.queryStatus[i].location);
+          const queryData = allRecordData.filter(item => item.search_location === record.bulkData.queryStatus[i].location);
           if (queryData.length > 0) {
             const cleanLocation = record.bulkData.queryStatus[i].location.replace(/[^a-z0-9]/gi, '-').toLowerCase();
             const filename = `${record.bulkData.niche}-${cleanLocation}.csv`;
@@ -4158,11 +4196,26 @@ async function exportSingleBulkRecord(record, mode) {
       }
     } else if (record.bulkData && record.bulkData.niche) {
       // If we have bulk data but not by query, just export all as one file with different naming
+      // Always try to load session data if sessionFile is available or if it's a bulk record (use timestamp as fallback)
+      const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
+      let allRecordData = recordData; // Use the data we already loaded at the beginning of the function
+
+      if (sessionId) {
+        try {
+          const sessionData = await window.electronAPI.getSessionData(sessionId);
+          if (sessionData && Array.isArray(sessionData)) {
+            allRecordData = sessionData;
+          }
+        } catch (e) {
+          console.error('Failed to load session data for separate export:', e);
+        }
+      }
+
       const cleanNiche = record.bulkData.niche.replace(/[^a-z0-9]/gi, '-').toLowerCase();
       const filename = `${cleanNiche}-all-queries.csv`;
 
       const result = await window.electronAPI.exportDataToFolder({
-        data: record.data,
+        data: allRecordData, // Use the loaded session data instead of record.data
         format: 'csv',
         filename,
         folderPath: folderResult.filePath
@@ -4187,12 +4240,12 @@ async function exportSingleRecord(record) {
     // Fallback: If sessionFile property is missing but it's a bulk record, use timestamp as ID (legacy support)
     const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
 
-    if (sessionId && (!recordData || recordData.length === 0)) {
+    if (sessionId) {
       try {
         // No popup, just silent load
         const sessionData = await window.electronAPI.getSessionData(sessionId);
 
-        // Ensure we got a valid array back
+        // If we get session data, use it instead of the record data (which might be empty for bulk records)
         if (sessionData && Array.isArray(sessionData)) {
           recordData = sessionData;
         } else {
@@ -4260,10 +4313,10 @@ async function exportSelectedRecords(mode) {
         // Fallback: If sessionFile property is missing but it's a bulk record, use timestamp as ID (legacy support)
         const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
 
-        if (sessionId && (!recordData || recordData.length === 0)) {
+        if (sessionId) {
           try {
             const sessionData = await window.electronAPI.getSessionData(sessionId);
-            // Ensure we got a valid array back
+            // If we get session data, use it instead of the record data (which might be empty for bulk records)
             if (sessionData && Array.isArray(sessionData)) {
               recordData = sessionData;
             }
@@ -4321,10 +4374,10 @@ async function exportSelectedRecords(mode) {
         // Fallback: If sessionFile property is missing but it's a bulk record, use timestamp as ID (legacy support)
         const sessionId = record.sessionFile || (record.isBulk ? record.timestamp : null);
 
-        if (sessionId && (!recordData || recordData.length === 0)) {
+        if (sessionId) {
           try {
             const sessionData = await window.electronAPI.getSessionData(sessionId);
-            // Ensure we got a valid array back
+            // If we get session data, use it instead of the record data (which might be empty for bulk records)
             if (sessionData && Array.isArray(sessionData)) {
               recordData = sessionData;
             }
