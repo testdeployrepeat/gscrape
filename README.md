@@ -1,30 +1,30 @@
-# 🗺️ gscrape
+# GScrape
 
-A fast, powerful, open-source desktop application for scraping business data from Google Maps. Built with Electron and Puppeteer.
+Fastest open-source desktop application for scraping business data from Google Maps.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-2.5.0-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
 
-## 🆕 What's New in v2.5.0
+## 🆕 What's New in v4.4.0
 
 ### Major Updates
-- ✨ **Complete UI Overhaul** - Modern, intuitive interface with improved navigation
-- 🚀 **Optimized Scraping Engine** - Faster and more reliable data extraction
-- 📊 **Bulk Sessions Manager** - Track and manage multiple bulk scraping operations
-- 📋 **One-Click Copy** - Export live results as formatted tables or JSON instantly
-- ⚙️ **Customizable Fast Mode** - Fine-tune parallel scraping for your device's performance
-- 🔍 **Enhanced Detail Extraction** - Retrieves hidden company details in restricted regions
-- 🍎 **macOS Support** - Native builds now available for macOS (Intel & Apple Silicon)
-- 🔗 **Webhook Integration** - Send scraped data to external platforms via POST requests
-- 🎨 **Light/Dark Mode** - Automatic theme switching with optimized visibility
+- **Complete UI Overhaul** - Modern, intuitive interface with improved navigation
+- **Optimized Scraping Engine** - 100% faster and more reliable data extraction
+- **Bulk Sessions Manager** - Track and manage multiple bulk scraping operations
+- **One-Click Copy** - Copy live results immediately in table or JSON format
+- **Export Option** - Combine multiple files or export separate queries in a bulk session.
+- **Customizable Fast Mode** - Fine-tune parallel scraping for your device's performance
+- **Enhanced Detail Extraction** - Retrieves hidden company details in restricted regions such as EU countries
+- **macOS Support** - Native builds now available for macOS (Intel & Apple Silicon)
+- **Webhook Integration** - Send scraped data to external platforms via POST requests
 
 ---
 
 ## 📥 Installation
 
 ### Windows
-1. Download: [gscrape v2.5.0 Setup.exe](https://github.com/testdeployrepeat/gscrape/releases/latest)
+1. Download: [gscrape v4.0.0 Setup.exe](https://github.com/testdeployrepeat/gscrape/releases/latest)
 2. Run the installer
 3. Follow the setup wizard
 4. Launch from Desktop or Start Menu
@@ -39,12 +39,11 @@ C:\Users\{Username}\AppData\Local\Programs\gscrape\
 C:\Users\{Username}\AppData\Roaming\gscrape\data\
 ```
 
-> **Note**: Windows may show a security warning. Click "More info" → "Run anyway"
 
 ### macOS
-1. Download: [gscrape-2.5.0.dmg](https://github.com/testdeployrepeat/gscrape/releases/latest)
-   - **Intel Macs**: `gscrape-2.5.0.dmg`
-   - **Apple Silicon (M1/M2/M3)**: `gscrape-2.5.0-arm64.dmg`
+1. Download: [gscrape-4.0.0.dmg](https://github.com/testdeployrepeat/gscrape/releases/latest)
+   - **Intel Macs**: `gscrape-4.0.0.dmg`
+   - **Apple Silicon (M1/M2/M3)**: `gscrape-4.0.0-arm64.dmg`
 2. Open the DMG file
 3. Drag gscrape to Applications folder
 4. Launch from Applications
@@ -59,21 +58,8 @@ C:\Users\{Username}\AppData\Roaming\gscrape\data\
 ~/Library/Application Support/gscrape/data/
 ```
 
-> **Tip**: Press `Cmd + Shift + G` in Finder and paste the data path to open it directly
 
 > **⚠️ macOS Troubleshooting**: If you encounter errors during scraping, install [Google Chrome](https://www.google.com/chrome/) from the official website. The app should work normally after Chrome installation.
-
-### Installation Size
-
-| Component | Size | Purpose |
-|-----------|------|---------|
-| Chrome Browser | ~385 MB | Web scraping engine |
-| Electron Framework | ~250 MB | Desktop app runtime |
-| Dependencies | ~250 MB | Required libraries |
-| App Code & Assets | ~50 MB | Application files |
-| **Total Installed** | **~1 GB** | Complete installation |
-
-> **✅ Chrome Bundled**: No separate Chrome installation required!
 
 ---
 
@@ -82,12 +68,11 @@ C:\Users\{Username}\AppData\Roaming\gscrape\data\
 ### Core Capabilities
 - 🎯 **Dual Scraping Modes**
   - **Single Mode**: Scrape one location at a time
-  - **Bulk Mode**: Process hundreds of locations from CSV files
+  - **Bulk Mode**: Process hundreds of locations with one click
 
 - ⚡ **Flexible Speed Settings**
-  - **Normal Mode**: Safest, most reliable
-  - **Fast Mode**: Customizable parallel processing (configurable in settings)
-  - Configure fast mode in the settings to better match your device's performance.
+  - **Normal Mode**: Safest, most reliable (sequential scraping)
+  - **Fast Mode**: Customizable parallel processing
 
 - 📊 **Real-Time Monitoring**
   - Live progress tracking
@@ -97,7 +82,7 @@ C:\Users\{Username}\AppData\Roaming\gscrape\data\
 
 - 💾 **Advanced Data Management**
   - Auto-save with full history
-  - Resume interrupted scraping sessions
+  - Resume paused scraping sessions
   - Bulk session tracking and management
   - Export as CSV or JSON
   - One-click copy to clipboard (table or JSON format)
@@ -105,7 +90,6 @@ C:\Users\{Username}\AppData\Roaming\gscrape\data\
 - 🔗 **Integration Options**
   - **POST to Webhook**: Send data to external platforms (n8n, Make.com, Zapier, etc.)
   - Custom webhook URL configuration
-  - Supports batch data transmission
 
 ### Data Extracted
 
@@ -116,49 +100,13 @@ C:\Users\{Username}\AppData\Roaming\gscrape\data\
 - ✅ Website URL
 - ✅ Ratings (1-5 stars)
 - ✅ Review count
+- ✅ Email addresses (when enabled)
 
 **Advanced Extraction:**
 - 🔍 **Email Addresses** - Scrapes contact emails from business websites
 - 🔍 **Detailed Info Extraction** - For regions where Google Maps hides details:
   - Retrieves hidden phone numbers
   - Extracts obscured website links
-  - Gathers additional contact information
-- 👤 **Owner Information** (when available)
-
----
-
-## 🚀 Quick Start
-
-### Single Location Scraping
-
-1. **Enter Details:**
-   - Business niche: `dentists`, `restaurants`, `roofers`, etc.
-   - Location: `New York, NY` (be specific for better results)
-
-2. **Configure Options:**
-   - Select speed mode (Normal or Fast)
-   - Toggle "Extract Emails" if needed
-   - Toggle "Detailed Info Extraction" for hidden data
-
-3. **Start Scraping:**
-   - Click "Start Scraping"
-   - Watch live results populate
-   - Export when complete
-
-### Bulk Location Scraping
-
-1. **Enable Bulk Mode:**
-   - Toggle "Bulk Mode" switch
-
-2. **Input Locations:**
-   - **Manual Entry**: Type locations line by line
-   - **CSV Upload**: Drag & drop CSV file (one location per row)
-
-3. **Configure & Start:**
-   - Select speed mode
-   - Enable optional features (emails, detailed extraction)
-   - Click "Start Scraping"
-   - Track progress in Bulk Sessions panel
 
 ---
 
@@ -283,19 +231,20 @@ rm -f ~/Library/Preferences/com.gscrape.app.plist
 **"Chrome executable not found"**
 - Reinstall the application
 - Chrome is bundled automatically
+- Download Chrome from the official website (if nothing worked)
 
 **Scraping stops or freezes**
-- Reduce Fast Mode settings (lower concurrent tabs)
+- Reduce Fast Mode settings (lower parallel count)
 - Switch to Normal mode
 - Check internet connection
 
 **No results found**
 - Use more specific locations
-- Try different search prepositions (in, near, around)
+- Try different search prepositions (in, near, around or custom)
 - Verify the business type exists in that area
 
 **Can't find data folder**
-- Windows: Press `Win + R`, type `%APPDATA%\gscrape`, press Enter
+- Windows: Press `Win + R`, type `%APPDATA%`, press Enter, find all gscrape folders from there.
 - macOS: Finder → Go → Go to Folder → `~/Library/Application Support/gscrape`
 
 ---
@@ -333,10 +282,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## 🔮 Roadmap
 
 - [ ] Proxy support for enhanced privacy
-- [ ] Additional export formats (Excel, SQLite)
-- [ ] Cloud sync for scraping history
 - [ ] Scheduled scraping automation
-- [ ] Linux native builds
+- [ ] Linux builds
 
 ---
 

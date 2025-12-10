@@ -245,23 +245,23 @@
             Choose how you want to export the selected records:
           </p>
           <div style="display: flex; flex-direction: column; gap: 12px;">
-            <button id="exportSingleCsvBtn" class="export-option-btn">
+            <button id="exportSingleFileBtn" class="export-option-btn">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z" />
               </svg>
               <div>
-                <strong>Export as Single CSV</strong>
+                <strong>Combined export</strong>
                 <small>Combine all selected records into one file</small>
               </div>
             </button>
-            <button id="exportSeparateCsvBtn" class="export-option-btn">
+            <button id="exportSeparateFilesBtn" class="export-option-btn">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <path
                   d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z" />
               </svg>
               <div>
-                <strong>Export as Separate CSV Files</strong>
-                <small>Create individual CSV files for each record</small>
+                <strong>Separate files</strong>
+                <small>Create individual files for each record</small>
               </div>
             </button>
           </div>
@@ -412,10 +412,13 @@
             <div class="form-group">
               <label for="defaultExportFormat">Default Export Format</label>
               <select id="defaultExportFormat">
-                <option value="csv">CSV</option>
-                <option value="json">JSON</option>
+                <option value="csv">CSV (.csv)</option>
+                <option value="json">JSON (.json)</option>
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="sqlite">SQLite (.db)</option>
               </select>
-              <small>Set the default format for exporting data.</small>
+              <small>All exports will use this format. CSV and Excel work best for spreadsheets, JSON for APIs, SQLite
+                for databases.</small>
             </div>
           </div>
 
@@ -669,14 +672,6 @@
                 <select id="speed">
                   <option value="normal">Normal</option>
                   <option value="fast">Fast</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="exportFormat">Format</label>
-                <select id="exportFormat">
-                  <option value="csv">CSV</option>
-                  <option value="json">JSON</option>
                 </select>
               </div>
             </div>

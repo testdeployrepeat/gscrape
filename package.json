@@ -14,12 +14,15 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.4.11",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9"
   },
   "dependencies": {
     "@puppeteer/browsers": "^2.4.1",
+    "better-sqlite3": "^11.6.0",
     "csv-parser": "^3.0.0",
     "electron-updater": "^6.1.7",
+    "exceljs": "^4.4.0",
     "papaparse": "^5.4.1",
     "puppeteer-core": "^24.27.0",
     "puppeteer-extra": "^3.3.6",

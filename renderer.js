@@ -31,7 +31,7 @@ const queryCountLabel = document.getElementById('queryCountLabel');
 const queryCount = document.getElementById('queryCount');
 
 const speedSelect = document.getElementById('speed');
-const exportFormatSelect = document.getElementById('exportFormat');
+// Note: exportFormatSelect removed - format now controlled via Settings only
 const searchPrepositionSingle = document.getElementById('searchPrepositionSingle');
 const customPrepositionSingle = document.getElementById('customPrepositionSingle');
 const searchPrepositionBulk = document.getElementById('searchPrepositionBulk');
@@ -83,6 +83,17 @@ let currentDeleteOperation = 'all'; // 'all' for all selected items, 'bulk' for 
 
 // Track selected history items
 let selectedHistoryItems = new Set();
+
+// Helper function to get the current export format from settings
+function getExportFormat() {
+  // Try to get from dropdown first (if Settings is open), otherwise from localStorage
+  const dropdown = document.getElementById('defaultExportFormat');
+  if (dropdown && dropdown.value) {
+    return dropdown.value;
+  }
+  // Fallback to localStorage
+  return localStorage.getItem('defaultExportFormat') || 'csv';
+}
 
 // Initialize with error handling
 try {
@@ -775,18 +786,18 @@ document.getElementById('closeExportOptionsBtn').addEventListener('click', () =>
   document.getElementById('exportOptionsModal').classList.remove('show');
 });
 
-document.getElementById('exportSingleCsvBtn').addEventListener('click', () => {
+document.getElementById('exportSingleFileBtn').addEventListener('click', () => {
   document.getElementById('exportOptionsModal').classList.remove('show');
 
   // Check if this is from Query Status modal with selected queries
   if (window.queryStatusExportData) {
     const { bulkRecord, selectedLocations, filteredData } = window.queryStatusExportData;
-    // Export as single combined CSV
+    // Export as single combined file
     exportFilteredData(bulkRecord, selectedLocations);
     // Clear the temporary data
     delete window.queryStatusExportData;
   } else if (window.currentExportRecord) {
-    // This is an individual bulk record export - treat as single CSV for that record
+    // This is an individual bulk record export - treat as single file for that record
     exportSingleBulkRecord(window.currentExportRecord, 'single');
     // Clear the temporary record
     delete window.currentExportRecord;
@@ -796,13 +807,22 @@ document.getElementById('exportSingleCsvBtn').addEventListener('click', () => {
   }
 });
 
-document.getElementById('exportSeparateCsvBtn').addEventListener('click', async () => {
+document.getElementById('exportSeparateFilesBtn').addEventListener('click', async () => {
   document.getElementById('exportOptionsModal').classList.remove('show');
+
+  // Get the current export format from settings
+  const format = getExportFormat();
 
   // Check if this is from Query Status modal with selected queries
   if (window.queryStatusExportData) {
     const { bulkRecord, selectedLocations, filteredData } = window.queryStatusExportData;
-    // Export each location as a separate CSV file
+    // Export each location as a separate file
+    const folderResult = await window.electronAPI.selectFolder();
+    if (folderResult.cancelled || !folderResult.filePath) {
+      delete window.queryStatusExportData;
+      return;
+    }
+
     for (const location of selectedLocations) {
       // Filter data for this specific location
       const locationData = filteredData.filter(item => {
@@ -818,18 +838,19 @@ document.getElementById('exportSeparateCsvBtn').addEventListener('click', async 
 
       if (locationData.length > 0) {
         const cleanLocation = location.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-        const filename = `${cleanLocation}.csv`;
+        const filename = `${cleanLocation}`;
         await window.electronAPI.exportDataToFolder({
           data: locationData,
-          format: 'csv',
-          filename
+          format: format,
+          filename,
+          folderPath: folderResult.filePath
         });
       }
     }
     // Clear the temporary data
     delete window.queryStatusExportData;
   } else if (window.currentExportRecord) {
-    // This is an individual bulk record export - treat as separate CSVs for that record
+    // This is an individual bulk record export - treat as separate files for that record
     exportSingleBulkRecord(window.currentExportRecord, 'separate');
     // Clear the temporary record
     delete window.currentExportRecord;
@@ -1623,13 +1644,14 @@ async function exportFilteredData(bulkRecord, selectedLocations) {
   }
 
   // Create a meaningful filename using the bulk title and selected count
+  const format = getExportFormat();
   const bulkTitleClean = bulkRecord.query.replace(/[^a-z0-9]/gi, '-').toLowerCase().substring(0, 30);
   const locationCount = selectedLocations.length;
-  const filename = `${bulkTitleClean}_selected_${locationCount}_queries.csv`;
+  const filename = `${bulkTitleClean}_selected_${locationCount}_queries`;
 
   const result = await window.electronAPI.exportData({
     data: filteredData,
-    format: 'csv',
+    format: format,
     filename
   });
 
@@ -2553,7 +2575,7 @@ async function startBulkScraping(resumedTimestamp = null) {
 
 
 
-  
+
 
 
 
@@ -2565,7 +2587,7 @@ async function startBulkScraping(resumedTimestamp = null) {
 
 
 
-  
+
 
 
     // After all workers complete, check if operation finished successfully
@@ -3241,8 +3263,8 @@ function clearResults() {
   resultsContainer.innerHTML = '<div class="empty-state"><p>No results yet</p></div>';
   resultsActions.style.display = 'none';
 
-  // Reset stats to show overall totals
-  updateStats();
+  // Reset stats to clear all values
+  updateStats([]);
 
   // Reset progress
   progressText.textContent = 'Ready to scrape';
@@ -3420,7 +3442,7 @@ async function exportData() {
         return;
       }
 
-      const format = exportFormatSelect.value;
+      const format = getExportFormat();
 
       // Use query name for filename instead of timestamp
       let queryName = 'export';
@@ -3460,7 +3482,7 @@ async function exportData() {
       return;
     }
 
-    const format = exportFormatSelect.value;
+    const format = getExportFormat();
 
     // Use query name for filename instead of timestamp
     let queryName = 'export';
@@ -3788,10 +3810,9 @@ async function initializeSettings() {
   const headlessMode = localStorage.getItem('headlessMode') !== 'false';
   headlessModeCheckbox.checked = headlessMode;
 
-  // Initialize export format
+  // Initialize export format in settings dropdown
   const exportFormat = localStorage.getItem('defaultExportFormat') || 'csv';
   defaultExportFormatSelect.value = exportFormat;
-  exportFormatSelect.value = exportFormat;
 
   // Initialize detailed info extraction settings
   const detailedInfoMode = localStorage.getItem('detailedInfoMode') === 'true';
@@ -4192,6 +4213,7 @@ function uncheckOppositeSection(selectedRecord) {
 function updateLiveResultsFromSelection() {
   if (selectedHistoryItems.size === 0) {
     renderResults([]);
+    updateStats([]); // Also clear stats when no selection
     return;
   }
 
@@ -4213,7 +4235,7 @@ function updateLiveResultsFromSelection() {
 // Moved to global scope to be accessible from setupHistoryEventDelegation
 function updateStatsFromSelection() {
   if (selectedHistoryItems.size === 0) {
-    updateStats();
+    updateStats([]);
     return;
   }
 
@@ -4261,7 +4283,7 @@ async function exportSingleBulkRecord(record, mode) {
 
   if (mode === 'single') {
     // Export all data from the bulk record as a single file
-    const format = exportFormatSelect.value; // Get selected format from settings
+    const format = getExportFormat(); // Get selected format from settings
     const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
     const filename = `${cleanQuery}.${format}`;
 
@@ -4302,16 +4324,17 @@ async function exportSingleBulkRecord(record, mode) {
       }
 
       // Export based on query status
+      const format = getExportFormat();
       for (let i = 0; i < Object.keys(record.bulkData.queryStatus).length; i++) {
         if (record.bulkData.queryStatus[i] && record.bulkData.queryStatus[i].status === 'completed') {
           const queryData = allRecordData.filter(item => item.search_location === record.bulkData.queryStatus[i].location);
           if (queryData.length > 0) {
             const cleanLocation = record.bulkData.queryStatus[i].location.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-            const filename = `${record.bulkData.niche}-${cleanLocation}.csv`;
+            const filename = `${record.bulkData.niche}-${cleanLocation}`;
 
             const result = await window.electronAPI.exportDataToFolder({
               data: queryData,
-              format: 'csv',
+              format: format,
               filename,
               folderPath: folderResult.filePath
             });
@@ -4337,12 +4360,13 @@ async function exportSingleBulkRecord(record, mode) {
         }
       }
 
+      const format = getExportFormat();
       const cleanNiche = record.bulkData.niche.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-      const filename = `${cleanNiche}-all-queries.csv`;
+      const filename = `${cleanNiche}-all-queries`;
 
       const result = await window.electronAPI.exportDataToFolder({
         data: allRecordData, // Use the loaded session data instead of record.data
-        format: 'csv',
+        format: format,
         filename,
         folderPath: folderResult.filePath
       });
@@ -4388,7 +4412,7 @@ async function exportSingleRecord(record) {
       return;
     }
 
-    const format = exportFormatSelect.value; // Get selected format from settings
+    const format = getExportFormat(); // Get selected format from settings
     const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
     const filename = `${cleanQuery}.${format}`;
 
@@ -4457,10 +4481,11 @@ async function exportSelectedRecords(mode) {
         }
       }
 
-      const filename = `gscraped-combined.csv`;
+      const format = getExportFormat();
+      const filename = `gscraped-combined`;
       const result = await window.electronAPI.exportData({
         data: allData,
-        format: 'csv',
+        format: format,
         filename
       });
 
@@ -4517,7 +4542,7 @@ async function exportSelectedRecords(mode) {
           // Clean query name for filename
           const cleanQuery = record.query.replace(/[^a-z0-9]/gi, '-').toLowerCase();
           const filename = `${cleanQuery}.csv`;
-          const format = exportFormatSelect.value; // Get selected format from settings
+          const format = getExportFormat(); // Get selected format from settings
 
           const result = await window.electronAPI.exportDataToFolder({
             data: recordData,

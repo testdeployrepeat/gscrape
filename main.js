@@ -313,8 +313,8 @@ ipcMain.handle('toggle-devtools', async () => {
     return { success: true };
 });
 
-// Helper function to generate file content based on format
-function generateFileContent(data, format) {
+// Helper function to generate file content based on format (for text formats)
+function generateTextFileContent(data, format) {
     if (format === 'json') {
         return JSON.stringify(data, null, 2);
     } else if (format === 'csv') {
@@ -339,24 +339,163 @@ function generateFileContent(data, format) {
     return '';
 }
 
+// Helper function to generate Excel file
+async function generateExcelFile(data, filePath) {
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Scraped Data');
+
+    if (data.length === 0) {
+        await workbook.xlsx.writeFile(filePath);
+        return;
+    }
+
+    // Add headers
+    const headers = Object.keys(data[0]);
+    worksheet.columns = headers.map(header => ({
+        header: header.charAt(0).toUpperCase() + header.slice(1).replace(/_/g, ' '),
+        key: header,
+        width: 20
+    }));
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF4472C4' }
+    };
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+    // Add data rows
+    for (const row of data) {
+        worksheet.addRow(row);
+    }
+
+    // Auto-filter
+    worksheet.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: data.length + 1, column: headers.length }
+    };
+
+    await workbook.xlsx.writeFile(filePath);
+}
+
+// Helper function to generate SQLite file
+async function generateSQLiteFile(data, filePath) {
+    const Database = require('better-sqlite3');
+    
+    // Delete existing file if it exists
+    try {
+        await fs.unlink(filePath);
+    } catch (e) {
+        // File doesn't exist, that's fine
+    }
+
+    const db = new Database(filePath);
+
+    if (data.length === 0) {
+        db.close();
+        return;
+    }
+
+    // Create table based on data structure
+    const headers = Object.keys(data[0]);
+    const columnDefs = headers.map(header => {
+        // Determine column type based on first non-null value
+        const sampleValue = data.find(row => row[header] != null)?.[header];
+        let type = 'TEXT';
+        if (typeof sampleValue === 'number') {
+            type = Number.isInteger(sampleValue) ? 'INTEGER' : 'REAL';
+        }
+        return `"${header}" ${type}`;
+    }).join(', ');
+
+    db.exec(`CREATE TABLE IF NOT EXISTS scraped_data (id INTEGER PRIMARY KEY AUTOINCREMENT, ${columnDefs})`);
+
+    // Prepare insert statement
+    const placeholders = headers.map(() => '?').join(', ');
+    const insertStmt = db.prepare(`INSERT INTO scraped_data (${headers.map(h => `"${h}"`).join(', ')}) VALUES (${placeholders})`);
+
+    // Insert data in a transaction for better performance
+    const insertMany = db.transaction((rows) => {
+        for (const row of rows) {
+            const values = headers.map(header => row[header] ?? null);
+            insertStmt.run(...values);
+        }
+    });
+
+    insertMany(data);
+
+    // Create indexes for common search fields
+    const indexableFields = ['name', 'phone', 'email', 'website', 'address'];
+    for (const field of indexableFields) {
+        if (headers.includes(field)) {
+            try {
+                db.exec(`CREATE INDEX IF NOT EXISTS idx_${field} ON scraped_data("${field}")`);
+            } catch (e) {
+                // Index creation failed, not critical
+            }
+        }
+    }
+
+    db.close();
+}
+
+// Get file extension for format
+function getFileExtension(format) {
+    const extensions = {
+        'csv': 'csv',
+        'json': 'json',
+        'xlsx': 'xlsx',
+        'sqlite': 'db'
+    };
+    return extensions[format] || format;
+}
+
+// Get file filter name for format
+function getFilterName(format) {
+    const names = {
+        'csv': 'CSV Files',
+        'json': 'JSON Files',
+        'xlsx': 'Excel Files',
+        'sqlite': 'SQLite Database'
+    };
+    return names[format] || format.toUpperCase();
+}
+
 ipcMain.handle('export-data', async (event, { data, format, filename }) => {
     try {
+        const ext = getFileExtension(format);
+        // Ensure filename has correct extension
+        const baseFilename = filename.replace(/\.[^.]+$/, '');
+        const fullFilename = `${baseFilename}.${ext}`;
+
         // Show save dialog
         const result = await dialog.showSaveDialog(mainWindow, {
-            defaultPath: filename,
+            defaultPath: fullFilename,
             filters: [
-                { name: format.toUpperCase(), extensions: [format] }
+                { name: getFilterName(format), extensions: [ext] }
             ]
         });
 
         if (!result.filePath) return { success: false, cancelled: true };
         let filePath = result.filePath;
 
-        const content = generateFileContent(data, format);
+        // Handle different formats
+        if (format === 'xlsx') {
+            await generateExcelFile(data, filePath);
+        } else if (format === 'sqlite') {
+            await generateSQLiteFile(data, filePath);
+        } else {
+            // Text-based formats (csv, json)
+            const content = generateTextFileContent(data, format);
+            await fs.writeFile(filePath, content, 'utf8');
+        }
 
-        await fs.writeFile(filePath, content, 'utf8');
         return { success: true, filePath };
     } catch (error) {
+        console.error('Export error:', error);
         return { success: false, error: error.message };
     }
 });
@@ -380,13 +519,26 @@ ipcMain.handle('select-folder', async () => {
 // Export data to a specific folder
 ipcMain.handle('export-data-to-folder', async (event, { data, format, filename, folderPath }) => {
     try {
-        const filePath = path.join(folderPath, filename);
+        const ext = getFileExtension(format);
+        // Ensure filename has correct extension
+        const baseFilename = filename.replace(/\.[^.]+$/, '');
+        const fullFilename = `${baseFilename}.${ext}`;
+        const filePath = path.join(folderPath, fullFilename);
 
-        const content = generateFileContent(data, format);
+        // Handle different formats
+        if (format === 'xlsx') {
+            await generateExcelFile(data, filePath);
+        } else if (format === 'sqlite') {
+            await generateSQLiteFile(data, filePath);
+        } else {
+            // Text-based formats (csv, json)
+            const content = generateTextFileContent(data, format);
+            await fs.writeFile(filePath, content, 'utf8');
+        }
 
-        await fs.writeFile(filePath, content, 'utf8');
         return { success: true, filePath };
     } catch (error) {
+        console.error('Export to folder error:', error);
         return { success: false, error: error.message };
     }
 });
