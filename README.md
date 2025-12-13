@@ -282,6 +282,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## 🔮 Roadmap
 
 - [ ] Proxy support for enhanced privacy
+- [ ] Additional export formats (Excel, SQLite)
 - [ ] Scheduled scraping automation
 - [ ] Linux builds
 
