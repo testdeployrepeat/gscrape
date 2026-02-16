@@ -396,6 +396,24 @@
                 significantly slower.</small>
             </div>
             <div class="form-group">
+              <label class="switch-label">
+                <span>Resource Blocking</span>
+                <label class="switch">
+                  <input type="checkbox" id="resourceBlocking">
+                  <span class="slider"></span>
+                </label>
+              </label>
+              <small>Block unnecessary resources during scraping to speed up page loads.</small>
+            </div>
+            <div id="resourceBlockingLevelContainer" class="form-group" style="display: none; margin-left: 16px;">
+              <label for="resourceBlockingLevel">Blocking Level</label>
+              <select id="resourceBlockingLevel">
+                <option value="balanced">Balanced (Safer)</option>
+                <option value="aggressive">Aggressive (Faster)</option>
+              </select>
+              <small style="color: var(--text-tertiary); font-size: 12px;">Balanced: Blocks media & fonts only — keeps images and stylesheets for stealth. Aggressive: Blocks images, fonts, and media — faster but less stealthy.</small>
+            </div>
+            <div class="form-group">
               <label class="switch-label" style="opacity: 0.6; cursor: not-allowed;">
                 <span>Use Proxies (Coming Soon)</span>
                 <label class="switch">
@@ -711,6 +729,16 @@
               </div>
               <small style="color: var(--text-tertiary); font-size: 12px;">Number of queries to process simultaneously
                 in fast mode.</small>
+            </div>
+
+            <!-- Parallel Strategy - Bulk Mode only when Fast is selected -->
+            <div id="parallelStrategyContainer" class="form-group" style="display: none;">
+              <label for="parallelStrategy">Parallel Strategy</label>
+              <select id="parallelStrategy">
+                <option value="tabs">Tabs (Less RAM)</option>
+                <option value="instances">Instances (Faster)</option>
+              </select>
+              <small style="color: var(--text-tertiary); font-size: 12px;">Tabs: Uses one browser with multiple tabs — uses less RAM but slower due to shared resources. Instances: Launches separate browsers — faster with true parallelism and unique fingerprints for better anti-detection.</small>
             </div>
           </div>
         </section>

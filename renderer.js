@@ -76,6 +76,9 @@ const fastModeEmailScrapingInput = document.getElementById('fastModeEmailScrapin
 const fastModeEmailWarning = document.getElementById('fastModeEmailWarning');
 const fastModeEmailScrapingDefaultBtn = document.getElementById('fastModeEmailScrapingDefault');
 const deepEmailExtractionCheckbox = document.getElementById('deepEmailExtraction');
+const resourceBlockingCheckbox = document.getElementById('resourceBlocking');
+const resourceBlockingLevelContainer = document.getElementById('resourceBlockingLevelContainer');
+const resourceBlockingLevelSelect = document.getElementById('resourceBlockingLevel');
 const deleteAllDataBtn = document.getElementById('deleteAllDataBtn');
 
 // Track which delete operation is being performed
@@ -418,6 +421,12 @@ speedSelect.addEventListener('change', () => {
   if (parallelScrapingContainer) {
     parallelScrapingContainer.style.display = (isBulkMode && isFastMode) ? 'block' : 'none';
   }
+
+  // Show Parallel Strategy in bulk mode only when fast is selected
+  const parallelStrategyContainer = document.getElementById('parallelStrategyContainer');
+  if (parallelStrategyContainer) {
+    parallelStrategyContainer.style.display = (isBulkMode && isFastMode) ? 'block' : 'none';
+  }
 });
 document.getElementById('headerStartBtn').addEventListener('click', () => {
   if (isScrapingActive) {
@@ -712,6 +721,21 @@ detailedInfoExtractionCheckbox.addEventListener('change', (e) => {
 deepEmailExtractionCheckbox.addEventListener('change', (e) => {
   localStorage.setItem('deepEmailExtraction', e.target.checked);
 });
+
+// Resource Blocking setting listeners
+if (resourceBlockingCheckbox) {
+  resourceBlockingCheckbox.addEventListener('change', (e) => {
+    localStorage.setItem('resourceBlocking', e.target.checked);
+    if (resourceBlockingLevelContainer) {
+      resourceBlockingLevelContainer.style.display = e.target.checked ? 'block' : 'none';
+    }
+  });
+}
+if (resourceBlockingLevelSelect) {
+  resourceBlockingLevelSelect.addEventListener('change', (e) => {
+    localStorage.setItem('resourceBlockingLevel', e.target.value);
+  });
+}
 
 // Delete All Data button listener
 if (deleteAllDataBtn) {
@@ -1839,7 +1863,9 @@ async function startSingleScraping() {
     extractDetailedInfo: localStorage.getItem('detailedInfoMode') === 'true',
     headless: headlessModeCheckbox.checked,
     emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
-    deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
+    deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true',
+    resourceBlocking: localStorage.getItem('resourceBlocking') === 'true',
+    resourceBlockingLevel: localStorage.getItem('resourceBlockingLevel') || 'balanced'
   };
 
   // Start timer
@@ -2249,6 +2275,29 @@ async function startBulkScraping(resumedTimestamp = null) {
 
     const parallelLimit = Math.min(effectiveLimit, maxSafeParallelLimit);
 
+    // Read the parallel strategy (tabs vs instances)
+    const parallelStrategySelect = document.getElementById('parallelStrategy');
+    const parallelStrategy = parallelStrategySelect ? parallelStrategySelect.value : 'tabs';
+    const useTabsMode = parallelStrategy === 'tabs';
+
+    // In tabs mode, launch a single shared browser for all tabs
+    if (useTabsMode) {
+      progressText.textContent = 'Launching browser...';
+      const launchResult = await window.electronAPI.launchBulkBrowser({ headless: headlessModeCheckbox.checked });
+      if (!launchResult.success) {
+        progressText.textContent = `✗ Failed to launch browser: ${launchResult.error}`;
+        progressText.style.color = 'var(--error)';
+        // Reset UI state
+        isScrapingActive = false;
+        isBulkFastMode = false;
+        headerStartBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7z" /></svg> Start Scraping`;
+        headerStartBtn.classList.remove('btn-danger');
+        headerStartBtn.classList.add('btn-primary');
+        stopTimer();
+        return;
+      }
+    }
+
     // Queue-based parallel processing: maintain constant concurrency
     // Note: currentQueryIndex is defined in outer scope
     let completedQueries = 0;
@@ -2297,7 +2346,9 @@ async function startBulkScraping(resumedTimestamp = null) {
         }
 
         try {
-          const result = await window.electronAPI.startScraping({
+          // Use tabs or instances based on parallel strategy
+          const scrapeMethod = useTabsMode ? window.electronAPI.scrapeInTab : window.electronAPI.startScraping;
+          const result = await scrapeMethod({
             niche,
             location,
             speed: selectedSpeed,
@@ -2306,7 +2357,9 @@ async function startBulkScraping(resumedTimestamp = null) {
             headless: headlessModeCheckbox.checked,
             parallelLimit: parseInt(fastModeParallelScrapingInput.value),
             emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
-            deepEmailExtraction: useDeepExtraction
+            deepEmailExtraction: useDeepExtraction,
+            resourceBlocking: localStorage.getItem('resourceBlocking') === 'true',
+            resourceBlockingLevel: localStorage.getItem('resourceBlockingLevel') || 'balanced'
           });
 
           if (!isScrapingActive) {
@@ -2564,26 +2617,22 @@ async function startBulkScraping(resumedTimestamp = null) {
       }
     };
 
-    // Start concurrent workers with staggered delays to prevent simultaneous browser launches
+    // Start concurrent workers
     for (let i = 0; i < parallelLimit; i++) {
-      // Stagger worker starts by 500ms each to reduce resource spike
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+      // In instances mode, stagger worker starts to reduce resource spike
+      if (!useTabsMode && i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       workers.push(processNextQuery());
     }
 
-
-
-
-
-
-
     // Wait for all workers to complete
-
-
-
     await Promise.all(workers);
+
+    // In tabs mode, close the shared browser now that all workers are done
+    if (useTabsMode) {
+      await window.electronAPI.closeBulkBrowser();
+    }
 
 
 
@@ -2631,6 +2680,11 @@ async function startBulkScraping(resumedTimestamp = null) {
 
       // Clear resume data
       localStorage.removeItem(resumeKey);
+    } else {
+      // Workers finished but not all queries completed (stopped/error)
+      if (useTabsMode) {
+        await window.electronAPI.closeBulkBrowser();
+      }
     }
   } else {
     // For normal mode, show regular progress and hide fast mode progress
@@ -2671,7 +2725,9 @@ async function startBulkScraping(resumedTimestamp = null) {
         headless: headlessModeCheckbox.checked,
         parallelLimit: parseInt(fastModeParallelScrapingInput.value),
         emailScrapingLimit: speedSelect.value === 'fast' ? parseInt(fastModeEmailScrapingInput.value) : null,
-        deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true'
+        deepEmailExtraction: localStorage.getItem('deepEmailExtraction') === 'true',
+        resourceBlocking: localStorage.getItem('resourceBlocking') === 'true',
+        resourceBlockingLevel: localStorage.getItem('resourceBlockingLevel') || 'balanced'
       };
 
       try {
@@ -3862,6 +3918,19 @@ async function initializeSettings() {
   const deepEmailExtraction = localStorage.getItem('deepEmailExtraction') === 'true';
   if (deepEmailExtractionCheckbox) {
     deepEmailExtractionCheckbox.checked = deepEmailExtraction;
+  }
+
+  // Initialize Resource Blocking (off by default)
+  const resourceBlocking = localStorage.getItem('resourceBlocking') === 'true';
+  if (resourceBlockingCheckbox) {
+    resourceBlockingCheckbox.checked = resourceBlocking;
+  }
+  if (resourceBlockingLevelContainer) {
+    resourceBlockingLevelContainer.style.display = resourceBlocking ? 'block' : 'none';
+  }
+  const resourceBlockingLevel = localStorage.getItem('resourceBlockingLevel') || 'balanced';
+  if (resourceBlockingLevelSelect) {
+    resourceBlockingLevelSelect.value = resourceBlockingLevel;
   }
 }
 

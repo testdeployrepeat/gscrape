@@ -8,6 +8,8 @@ const puppeteer = puppeteerExtra.addExtra(puppeteerCore);
 puppeteer.use(StealthPlugin());
 
 let shouldStop = false;
+let sharedBrowser = null; // Shared browser instance for tab-based bulk scraping
+let consentHandled = false; // Track if consent was already handled in this browser session
 
 // Helper function for waiting
 function wait(ms) {
@@ -294,7 +296,7 @@ async function scrapeGoogleMaps(options, progressCallback) {
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--disable-gpu',
-      '--window-size=1920x1080',
+      '--window-size=1280x720',
       '--disable-blink-features=AutomationControlled',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
@@ -314,31 +316,42 @@ async function scrapeGoogleMaps(options, progressCallback) {
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
 
     // Set a more recent, realistic user agent
     const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-    await page.setUserAgent(userAgent);
 
-    // Add additional stealth measures
+    // Add stealth measures (must run before navigation)
     await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-      });
-    });
-
-    // Add extra headers to mimic real browser behavior
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Upgrade-Insecure-Requests': '1',
-      'DNT': '1',
-    });
-
-    // Set permissions to avoid permission prompts
-    await page.setGeolocation({ latitude: 41.8781, longitude: -87.6298 }); // Chicago as default
-    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       delete navigator.__proto__.webdriver;
     });
+
+    // Parallelize independent page setup calls
+    await Promise.all([
+      page.setViewport({ width: 1280, height: 720 }),
+      page.setUserAgent(userAgent),
+      page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Upgrade-Insecure-Requests': '1',
+        'DNT': '1',
+      }),
+      page.setGeolocation({ latitude: 41.8781, longitude: -87.6298 }),
+    ]);
+
+    // Resource blocking for faster page loads
+    if (options.resourceBlocking) {
+      await page.setRequestInterception(true);
+      const blockedTypes = options.resourceBlockingLevel === 'aggressive'
+        ? ['image', 'font', 'media']
+        : ['media', 'font'];
+      page.on('request', (req) => {
+        if (blockedTypes.includes(req.resourceType())) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+    }
 
     // Close the default about:blank tab that Puppeteer creates
     const pages = await browser.pages();
@@ -1015,4 +1028,445 @@ async function extractDetailedInfo(page, results, speed, progressCallback) {
   }
 }
 
-module.exports = { scrapeGoogleMaps, stopScraping, resetStopper };
+/**
+ * Launch a shared browser for tab-based bulk scraping.
+ * Instead of launching a new Chrome per query, this launches once
+ * and scrapeQueryInTab() reuses it for each query.
+ */
+async function launchBulkBrowser(options = {}) {
+  const { headless = true } = options;
+
+  // Close any existing shared browser first
+  if (sharedBrowser) {
+    try {
+      if (typeof sharedBrowser.isConnected === 'function' && sharedBrowser.isConnected()) {
+        await sharedBrowser.close();
+      }
+    } catch (e) {
+      console.error('Error closing previous shared browser:', e);
+    }
+    sharedBrowser = null;
+  }
+
+  sharedBrowser = await puppeteer.launch({
+    executablePath: getChromePath(),
+    headless: headless ? 'new' : false,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--window-size=1280x720',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor',
+      '--disable-ipc-flooding-protection',
+      '--memory-pressure-off',
+      '--max_old_space_size=4096'
+    ],
+    ignoreHTTPSErrors: true,
+  });
+
+  // Close default about:blank tab
+  const pages = await sharedBrowser.pages();
+  for (const p of pages) {
+    const url = p.url();
+    if (url === 'about:blank' || url === '') {
+      await p.close().catch(() => {});
+    }
+  }
+
+  console.log('Shared bulk browser launched successfully');
+  return { success: true };
+}
+
+/**
+ * Scrape a single query using a new tab in the shared browser.
+ * This is the tab-based equivalent of scrapeGoogleMaps() but:
+ * - Does NOT launch a new browser (uses sharedBrowser)
+ * - Does NOT close the browser when done (only closes the tab)
+ */
+async function scrapeQueryInTab(options, progressCallback) {
+  if (!sharedBrowser || !sharedBrowser.isConnected()) {
+    throw new Error('Shared browser is not available. Call launchBulkBrowser() first.');
+  }
+
+  const {
+    niche,
+    location,
+    speed = 'normal',
+    extractEmails = false,
+    headless = true
+  } = options;
+
+  const searchQuery = `${niche} in ${location}`;
+  const scrapedLinks = new Set();
+
+  progressCallback({ status: 'starting', message: 'Opening new tab...' });
+
+  const page = await sharedBrowser.newPage();
+
+  try {
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+    // Add stealth measures (must run before navigation)
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      delete navigator.__proto__.webdriver;
+    });
+
+    // Parallelize independent page setup calls
+    await Promise.all([
+      page.setViewport({ width: 1280, height: 720 }),
+      page.setUserAgent(userAgent),
+      page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Upgrade-Insecure-Requests': '1',
+        'DNT': '1',
+      }),
+      page.setGeolocation({ latitude: 41.8781, longitude: -87.6298 }),
+    ]);
+
+    // Resource blocking for faster page loads
+    if (options.resourceBlocking) {
+      await page.setRequestInterception(true);
+      const blockedTypes = options.resourceBlockingLevel === 'aggressive'
+        ? ['image', 'font', 'media']
+        : ['media', 'font'];
+      page.on('request', (req) => {
+        if (blockedTypes.includes(req.resourceType())) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+    }
+
+    if (shouldStop) throw new Error('Scraping cancelled by user');
+
+    progressCallback({ status: 'navigating', message: `Searching for "${searchQuery}"...` });
+
+    try {
+      await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      });
+    } catch (navigationError) {
+      if (navigationError.name === 'TimeoutError') {
+        console.log('Navigation timeout occurred, but continuing with page that partially loaded...');
+      } else {
+        throw navigationError;
+      }
+    }
+
+    // Race condition: Wait for EITHER results to load OR consent banner to appear
+    const resultsSelector = 'div[role="feed"], div[aria-label^="Results for"], #searchbox';
+
+    // Skip consent check if already handled in this browser session (tabs mode optimization)
+    if (consentHandled) {
+      try {
+        await page.waitForSelector(resultsSelector, { timeout: 10000 });
+      } catch (e) {
+        console.log('Error waiting for results (consent already handled), trying fallback...');
+        try {
+          await page.waitForSelector(resultsSelector, { timeout: 5000 });
+        } catch (finalErr) {
+          throw new Error('Unable to find search results. If you\'re scraping from EU, please use a VPN or non-EU proxy.');
+        }
+      }
+    } else {
+      const consentSelector = 'button[aria-label="Accept all"], button[aria-label*="Agree"], form[action*="consent"]';
+
+      try {
+        const result = await Promise.race([
+          page.waitForSelector(resultsSelector, { timeout: 10000 }).then(() => 'results'),
+          page.waitForSelector(consentSelector, { timeout: 5000 }).then(() => 'consent'),
+          page.waitForFunction(() => {
+            const text = document.body.innerText;
+            return text.includes('Before you continue') || text.includes('Avant de continuer') || text.includes('Bevor Sie fortfahren');
+          }, { timeout: 5000 }).then(() => 'consent_text')
+        ]).catch(e => 'timeout');
+
+        if (result === 'consent' || result === 'consent_text') {
+          console.log('Consent banner detected via race condition!');
+          const handled = await handleConsent(page);
+          if (handled) {
+            consentHandled = true;
+            progressCallback({ status: 'navigating', message: 'Consent accepted. Loading results...', requiresConsent: true });
+            await page.waitForSelector(resultsSelector, { timeout: 10000 });
+          }
+        } else if (result === 'timeout') {
+          console.log('Initial race timed out, performing robust consent check...');
+          const handled = await handleConsent(page);
+          if (handled) {
+            consentHandled = true;
+            progressCallback({ status: 'navigating', message: 'Consent accepted. Loading results...', requiresConsent: true });
+          }
+          await page.waitForSelector(resultsSelector, { timeout: 10000 });
+        }
+      } catch (e) {
+        console.log('Error during startup sequence, trying final fallback...');
+        try {
+          await page.waitForSelector(resultsSelector, { timeout: 5000 });
+        } catch (finalErr) {
+          throw new Error('Unable to find search results. If you\'re scraping from EU, please use a VPN or non-EU proxy.');
+        }
+      }
+    }
+
+    // Wait for business listings
+    try {
+      const hasListings = await page.$('div[role="feed"] > div > div[jsaction]');
+      if (!hasListings) {
+        await page.waitForSelector('div[role="feed"] > div > div[jsaction]', { timeout: 4000 });
+      }
+    } catch (e) {
+      console.log('Timeout waiting for initial listings, proceeding to scroll...');
+    }
+
+    if (shouldStop) throw new Error('Scraping cancelled by user');
+
+    progressCallback({ status: 'scrolling', message: 'Loading all results...' });
+    await scrollResultsFeed(page, speed);
+
+    if (shouldStop) throw new Error('Scraping cancelled by user');
+
+    progressCallback({ status: 'extracting', message: 'Extracting business information from list...' });
+
+    // Scrape from list view (same logic as scrapeGoogleMaps)
+    const businessesFromList = await page.evaluate((niche) => {
+      const resultsArray = [];
+      const businessCards = document.querySelectorAll('div[role="feed"] > div > div[jsaction]');
+
+      businessCards.forEach(card => {
+        const linkElement = card.querySelector('a[href*="/maps/place/"]');
+        if (!linkElement) return;
+
+        const data = {
+          name: linkElement.getAttribute('aria-label') || '',
+          link: linkElement.href,
+          category: niche,
+          address: '',
+          phone: '',
+          website: '',
+          rating: '',
+          reviews: ''
+        };
+
+        try {
+          let detailsContainer = card.querySelector('div.fontBodyMedium');
+          if (!detailsContainer) detailsContainer = card.querySelector('div[style*="line-height"]');
+          if (!detailsContainer) detailsContainer = card.querySelector('div[role="button"] + div');
+
+          if (detailsContainer) {
+            const ratingSpan = card.querySelector('span[aria-label*="star"]');
+            if (ratingSpan) {
+              const ratingText = ratingSpan.parentElement.innerText;
+              const ratingMatch = ratingText.match(/(\d\.\d+)/);
+              const reviewMatch = ratingText.match(/\(([\d,]+)\)/);
+              if (ratingMatch) data.rating = ratingMatch[1];
+              if (reviewMatch) data.reviews = reviewMatch[1].replace(/,/g, '');
+            }
+
+            let infoDivs = detailsContainer.querySelectorAll(':scope > div');
+            if (infoDivs.length === 0) infoDivs = detailsContainer.querySelectorAll('*');
+
+            let websiteLink = card.querySelector('a[data-item-id="authority"]');
+            if (!websiteLink) websiteLink = card.querySelector('a[aria-label*="Website"]');
+            if (!websiteLink) {
+              const allLinks = card.querySelectorAll('a[href^="http"]');
+              for (const link of allLinks) {
+                if (!link.href.includes('google.com') && !link.href.includes('maps')) {
+                  websiteLink = link;
+                  break;
+                }
+              }
+            }
+            if (websiteLink) data.website = websiteLink.href;
+
+            infoDivs.forEach(div => {
+              const text = div.innerText;
+              if (!text) return;
+
+              const parts = text.split('·').map(p => p.trim());
+              parts.forEach(part => {
+                const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
+                const phoneMatch = part.match(phoneRegex);
+
+                if (phoneMatch) {
+                  data.phone = phoneMatch[0].trim();
+                  const remainingText = part.replace(phoneMatch[0], '').trim();
+                  if (remainingText && remainingText.length > 5) {
+                    if (remainingText.toLowerCase().match(/(st\.?|street|ave\.?|avenue|rd\.?|road|blvd\.?|boulevard|dr\.?|drive|ln\.?|lane|way|pl\.?|place|cir\.?|circle|court|ct\.?|highway|hwy|pkwy|parkway|square|sq|terrace|ter|trail|trl|loop)/i)) {
+                      data.address = remainingText.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
+                    }
+                  }
+                } else if (part.match(/\d/) && !part.includes('star')) {
+                  if (part.match(/^\d\.\d+\s*\(\d+\)/)) return;
+                  if (part.match(/^(Opens|Closes|Temporarily|Permanently)\b/i)) return;
+                  if (part.match(/^Open\b/i) && part.match(/(AM|PM|hours?|soon|now)/i)) return;
+                  if (part.match(/^\d\.\d+$/)) return;
+
+                  if (part.toLowerCase().match(/(st\.?|street|ave\.?|avenue|rd\.?|road|blvd\.?|boulevard|dr\.?|drive|ln\.?|lane|way|pl\.?|place|cir\.?|circle|court|ct\.?|highway|hwy|pkwy|parkway|square|sq|terrace|ter|trail|trl|loop)/i)) {
+                    const cleanedAddress = part.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
+                    if (cleanedAddress.length > 5 && !cleanedAddress.match(/^\d+$/)) {
+                      data.address = cleanedAddress;
+                    }
+                  } else {
+                    const cleanedAddress = part.replace(/Open \d+ Hours?|Open now|Closes soon|Closed/gi, '').trim();
+                    if (cleanedAddress.length > 5 && !cleanedAddress.match(/^\d+$/) && !cleanedAddress.match(/^\d+\s*\(\d+\)$/)) {
+                      data.address = cleanedAddress;
+                    }
+                  }
+                }
+              });
+            });
+          }
+
+          if (data.name.trim()) {
+            resultsArray.push(data);
+          }
+        } catch (e) {
+          console.error('Error parsing a business card:', e);
+        }
+      });
+      return resultsArray;
+    }, niche);
+
+    const uniqueBusinesses = [];
+    businessesFromList.forEach(business => {
+      if (!scrapedLinks.has(business.link)) {
+        scrapedLinks.add(business.link);
+        uniqueBusinesses.push(business);
+      }
+    });
+
+    let finalResults = uniqueBusinesses;
+
+    // Extract detailed info
+    if (options.extractDetailedInfo) {
+      progressCallback({
+        status: 'processing',
+        message: `Extracting detailed info from ${uniqueBusinesses.length} listings...`,
+        total: uniqueBusinesses.length,
+        data: uniqueBusinesses
+      });
+      await extractDetailedInfo(page, finalResults, speed, progressCallback);
+    }
+
+    // Extract emails (uses the SHARED browser for new pages)
+    if (extractEmails && finalResults.length > 0) {
+      progressCallback({
+        status: 'processing',
+        message: `Extracting emails from ${finalResults.filter(r => r.website).length} websites...`
+      });
+      await extractEmailsInParallel(sharedBrowser, finalResults, speed, progressCallback, options.emailScrapingLimit, options.deepEmailExtraction);
+    }
+
+    // Post-processing: Clean up phone fields
+    finalResults = finalResults.map(business => {
+      if (business.phone && business.phone.includes('\n')) {
+        const lines = business.phone.split('\n').map(line => line.trim()).filter(line => line);
+        let cleanPhone = '';
+        let potentialAddress = '';
+        for (const line of lines) {
+          if (line.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)) {
+            cleanPhone = line;
+          } else {
+            potentialAddress = line;
+          }
+        }
+        if (cleanPhone) business.phone = cleanPhone;
+        if (potentialAddress && !business.address) business.address = potentialAddress;
+      }
+
+      if (business.phone && !business.phone.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/)) {
+        const phoneMatch = business.phone.match(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+        if (phoneMatch) {
+          const extractedPhone = phoneMatch[0].trim();
+          const remainingText = business.phone.replace(extractedPhone, '').trim().replace(/\s+/g, ' ');
+          if (remainingText && !business.address) business.address = remainingText;
+          business.phone = extractedPhone;
+        }
+      }
+
+      return business;
+    });
+
+    finalResults.forEach(b => delete b.link);
+
+    if (shouldStop) {
+      progressCallback({ status: 'stopped', message: `⏸ Scraping stopped. Extracted ${finalResults.length} businesses.` });
+    } else {
+      progressCallback({ status: 'complete', message: `✓ Successfully scraped ${finalResults.length} businesses!` });
+    }
+
+    return finalResults;
+
+  } catch (error) {
+    console.error('An error occurred during tab scraping:', error);
+    const message = error.message.includes('cancelled') ? '⏸ Scraping stopped by user.' : `Error: ${error.message}`;
+    progressCallback({ status: 'error', message });
+    throw error;
+  } finally {
+    // Only close the TAB, NOT the browser
+    if (page) {
+      try {
+        await page.close();
+      } catch (e) {
+        console.error('Error closing tab:', e);
+      }
+    }
+  }
+}
+
+/**
+ * Close the shared bulk browser gracefully.
+ */
+async function closeBulkBrowser() {
+  if (!sharedBrowser) return;
+
+  try {
+    if (typeof sharedBrowser.isConnected === 'function' && !sharedBrowser.isConnected()) {
+      console.log('Shared browser already disconnected');
+      sharedBrowser = null;
+      return;
+    }
+
+    // Close all pages first
+    const pages = await sharedBrowser.pages();
+    await Promise.all(pages.map(p => p.close().catch(() => {})));
+
+    // Close browser with timeout
+    await Promise.race([
+      (async () => { await sharedBrowser.close(); })(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Browser close timeout')), 10000)
+      )
+    ]);
+  } catch (closeError) {
+    console.error('Error closing shared browser:', closeError);
+    try {
+      const proc = sharedBrowser.process();
+      if (proc && !proc.killed) {
+        proc.kill('SIGKILL');
+        console.log('Shared browser process forcefully killed');
+      }
+    } catch (killError) {
+      console.error('Could not kill shared browser process:', killError);
+    }
+  } finally {
+    sharedBrowser = null;
+    consentHandled = false; // Reset consent flag for next session
+  }
+}
+
+module.exports = { scrapeGoogleMaps, stopScraping, resetStopper, launchBulkBrowser, scrapeQueryInTab, closeBulkBrowser };

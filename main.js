@@ -272,7 +272,7 @@ ipcMain.handle('delete-session-data', async (event, sessionId) => {
     }
 });
 
-const { scrapeGoogleMaps, stopScraping, resetStopper } = require('./scraper');
+const { scrapeGoogleMaps, stopScraping, resetStopper, launchBulkBrowser, scrapeQueryInTab, closeBulkBrowser } = require('./scraper');
 
 ipcMain.handle('start-scraping', async (event, options) => {
     try {
@@ -300,6 +300,39 @@ ipcMain.handle('stop-scraping', async () => {
 ipcMain.handle('reset-scraping-state', async () => {
     try {
         resetStopper();
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+// Tab-based bulk scraping IPC handlers
+ipcMain.handle('launch-bulk-browser', async (event, options) => {
+    try {
+        const result = await launchBulkBrowser(options);
+        return result;
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('scrape-in-tab', async (event, options) => {
+    try {
+        const results = await scrapeQueryInTab(options, (progress) => {
+            mainWindow.webContents.send('scraping-progress', progress);
+        });
+        return { success: true, data: results };
+    } catch (error) {
+        if (error.message.includes('cancelled') || error.message.includes('stopped')) {
+            return { success: false, stopped: true, error: error.message };
+        }
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('close-bulk-browser', async () => {
+    try {
+        await closeBulkBrowser();
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
